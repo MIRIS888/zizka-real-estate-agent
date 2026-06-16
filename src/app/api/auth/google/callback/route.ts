@@ -20,7 +20,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const token = await exchangeGoogleCode(code);
+    const redirectUri = `${url.origin}/api/auth/google/callback`;
+    const token = await exchangeGoogleCode(code, redirectUri);
     const response = NextResponse.redirect(new URL("/?google=connected", url.origin));
     response.cookies.set(GOOGLE_TOKEN_COOKIE, encodeGoogleToken(token), {
       httpOnly: true,

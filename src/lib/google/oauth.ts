@@ -307,11 +307,11 @@ export function disconnectGoogleAccount() {
   tokenStore.token = null;
 }
 
-export function createGoogleAuthorizationUrl() {
+export function createGoogleAuthorizationUrl(redirectUri: string) {
   const environment = getGoogleOAuthEnvironment();
   const parameters = new URLSearchParams({
     client_id: environment.GOOGLE_CLIENT_ID,
-    redirect_uri: environment.GOOGLE_REDIRECT_URI,
+    redirect_uri: redirectUri,
     response_type: "code",
     scope: SCOPES.join(" "),
     access_type: "offline",
@@ -322,7 +322,7 @@ export function createGoogleAuthorizationUrl() {
   return `${GOOGLE_AUTH_URL}?${parameters.toString()}`;
 }
 
-export async function exchangeGoogleCode(code: string) {
+export async function exchangeGoogleCode(code: string, redirectUri: string) {
   const environment = getGoogleOAuthEnvironment();
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: "POST",
@@ -331,7 +331,7 @@ export async function exchangeGoogleCode(code: string) {
       code,
       client_id: environment.GOOGLE_CLIENT_ID,
       client_secret: environment.GOOGLE_CLIENT_SECRET,
-      redirect_uri: environment.GOOGLE_REDIRECT_URI,
+      redirect_uri: redirectUri,
       grant_type: "authorization_code",
     }),
   });
