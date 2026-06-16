@@ -2,63 +2,24 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { Building2, LoaderCircle } from "lucide-react";
-import { Syne } from "next/font/google";
+import { Apple, LoaderCircle, Phone } from "lucide-react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-const syne = Syne({ subsets: ["latin"], weight: ["700", "800"] });
-
-function BuildingOutline() {
-  const s = "#1E1E1E";
-  const st = "#191919";
-  const cols = [71, 171, 271];
-  const rows = [64, 131, 198, 265, 332];
-
+function XOutline() {
   return (
     <svg
-      viewBox="0 0 400 490"
+      viewBox="0 0 540 540"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden
-      className="w-full h-full"
+      className="h-full w-full"
     >
-      {/* Cornice */}
-      <rect x="35" y="36" width="330" height="18" stroke={s} strokeWidth="1.2" />
-
-      {/* Building body */}
-      <rect x="50" y="54" width="300" height="416" stroke={s} strokeWidth="1.5" />
-
-      {/* Bay dividers */}
-      <line x1="150" y1="54" x2="150" y2="389" stroke={st} strokeWidth="0.6" />
-      <line x1="250" y1="54" x2="250" y2="389" stroke={st} strokeWidth="0.6" />
-
-      {/* Floor dividers */}
-      {[121, 188, 255, 322, 389].map((y) => (
-        <line key={y} x1="50" y1={y} x2="350" y2={y} stroke={st} strokeWidth="0.7" />
-      ))}
-
-      {/* Windows */}
-      {rows.map((wy) =>
-        cols.map((wx) => (
-          <rect
-            key={`${wx}-${wy}`}
-            x={wx}
-            y={wy}
-            width={58}
-            height={50}
-            stroke={s}
-            strokeWidth="1"
-          />
-        )),
-      )}
-
-      {/* Entrance door */}
-      <rect x="175" y="397" width="50" height="73" stroke={s} strokeWidth="1.2" />
-      <line x1="175" y1="416" x2="225" y2="416" stroke={st} strokeWidth="0.8" />
-
-      {/* Ground line */}
-      <line x1="0" y1="470" x2="400" y2="470" stroke="#161616" strokeWidth="1" />
+      <path
+        d="M325.6 229.5 512 15h-44.2L306 201.2 176.8 15H27.8l195.5 281.9L27.8 522h44.2l171-196.8L379.6 522h149L325.6 229.5Zm-60.5 69.6-19.8-28-157.6-223h67.9l127.1 179.9 19.8 28 165.4 234.2H400L265.1 299.1Z"
+        stroke="#2c2c2c"
+        strokeWidth="5"
+      />
     </svg>
   );
 }
@@ -80,43 +41,82 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex w-full max-w-[340px] flex-col gap-7">
-      <h1
-        className={`${syne.className} text-[2.8rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[3.4rem] xl:text-[4rem]`}
-      >
-        Mějte přehled.
+    <div className="flex w-full max-w-[386px] flex-col">
+      <h1 className="mb-11 text-[3.6rem] font-bold leading-none text-white sm:text-[4.25rem]">
+        Happening now.
       </h1>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         <button
+          type="button"
+          className="flex h-12 w-full items-center justify-center gap-3 rounded-full bg-[#eff3f4] px-5 text-[15px] font-bold text-[#0f1419] transition hover:bg-[#e6e9ea]"
+        >
+          <Phone className="size-5 stroke-[2.3]" />
+          Continue with phone
+        </button>
+        <button
+          type="button"
           onClick={() => void signInWithGoogle()}
           disabled={loading}
-          className="flex w-full items-center justify-center gap-3 rounded-full bg-white px-5 py-3.5 text-[15px] font-semibold text-black transition hover:bg-neutral-100 active:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex h-12 w-full items-center justify-center gap-3 rounded-full bg-[#eff3f4] px-5 text-[15px] font-bold text-[#0f1419] transition hover:bg-[#e6e9ea] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? (
             <LoaderCircle className="size-5 animate-spin text-black/40" />
           ) : (
             <GoogleLogo />
           )}
-          {loading ? "Přesměrování…" : "Pokračovat přes Google"}
+          {loading ? "Redirecting..." : "Continue with Google"}
+        </button>
+        <button
+          type="button"
+          className="flex h-12 w-full items-center justify-center gap-3 rounded-full bg-[#eff3f4] px-5 text-[15px] font-bold text-[#0f1419] transition hover:bg-[#e6e9ea]"
+        >
+          <Apple className="size-5 fill-black stroke-[2.4]" />
+          Continue with Apple
         </button>
       </div>
 
+      <div className="my-7 flex items-center gap-3 text-[15px] text-[#71767b]">
+        <div className="h-px flex-1 bg-[#2f3336]" />
+        <span>or</span>
+        <div className="h-px flex-1 bg-[#2f3336]" />
+      </div>
+
+      <input
+        type="text"
+        placeholder="Email or username"
+        className="h-[60px] w-full rounded border border-[#333639] bg-black px-4 text-[17px] text-white outline-none transition placeholder:text-[#71767b] focus:border-[#1d9bf0]"
+      />
+
+      <button
+        type="button"
+        disabled
+        className="mt-5 h-12 w-full rounded-full bg-[#2f2f2f] px-5 text-[15px] font-bold text-[#777] disabled:cursor-not-allowed"
+      >
+        Continue
+      </button>
+
+      <p className="mt-8 text-center text-[12px] leading-4 text-[#71767b]">
+        By continuing, you agree to our{" "}
+        <a className="text-[#e7e9ea] hover:underline" href="#">
+          Terms of Service
+        </a>
+        ,{" "}
+        <a className="text-[#e7e9ea] hover:underline" href="#">
+          Privacy Policy
+        </a>{" "}
+        and{" "}
+        <a className="text-[#e7e9ea] hover:underline" href="#">
+          Cookie Use
+        </a>
+        .
+      </p>
+
       {error && (
-        <p className="text-sm text-red-400">
-          Přihlášení se nezdařilo. Zkuste to znovu nebo kontaktujte správce.
+        <p className="mt-5 text-sm text-red-400">
+          Sign in failed. Try again or contact the administrator.
         </p>
       )}
-
-      <p className="text-[13px] leading-5 text-neutral-600">
-        Přístup pouze pro pozvané.{" "}
-        <a
-          href="mailto:info@zizka-reality.cz"
-          className="text-neutral-400 underline-offset-2 hover:underline"
-        >
-          Kontaktujte správce.
-        </a>
-      </p>
     </div>
   );
 }
@@ -124,23 +124,48 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <Suspense>
-      <div className="min-h-screen bg-black">
-        <div className="flex min-h-screen">
-          {/* Left column */}
-          <div className="flex flex-1 flex-col px-10 py-10 sm:px-14 lg:px-16 xl:px-24">
-            <Building2 className="size-8 shrink-0 text-white" />
-            <div className="flex flex-1 items-center">
+      <div className="min-h-screen overflow-hidden bg-black text-white">
+        <main className="mx-auto flex min-h-[calc(100vh-54px)] w-full max-w-[1280px] items-center justify-center px-6 py-10 lg:justify-start lg:px-12 xl:px-16">
+          <div className="grid w-full items-center gap-16 lg:grid-cols-[minmax(386px,520px)_1fr] xl:gap-32">
+            <div className="flex justify-center lg:justify-start">
               <LoginForm />
             </div>
-          </div>
-
-          {/* Right column — building outline */}
-          <div className="hidden lg:flex flex-1 items-center justify-center">
-            <div className="w-[38vw] max-w-[480px]">
-              <BuildingOutline />
+            <div className="hidden justify-center lg:flex">
+              <div className="h-[490px] w-[490px] xl:h-[560px] xl:w-[560px]">
+                <XOutline />
+              </div>
             </div>
           </div>
-        </div>
+        </main>
+        <footer className="flex h-[54px] items-center justify-center px-6 text-[12px] text-[#71767b]">
+          <nav className="flex max-w-[1180px] flex-wrap justify-center gap-x-4 gap-y-1">
+            {[
+              "About",
+              "Download the X app",
+              "Grok",
+              "Help Center",
+              "Terms of Service",
+              "Privacy Policy",
+              "Cookie Policy",
+              "Accessibility",
+              "Ads info",
+              "Blog",
+              "Careers",
+              "Brand Resources",
+              "Advertising",
+              "Marketing",
+              "X for Business",
+              "Developers",
+              "News",
+              "Settings",
+              "© 2026 X Corp.",
+            ].map((item) => (
+              <a key={item} href="#" className="hover:underline">
+                {item}
+              </a>
+            ))}
+          </nav>
+        </footer>
       </div>
     </Suspense>
   );
