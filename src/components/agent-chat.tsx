@@ -7,6 +7,7 @@ import {
   Database,
   FileText,
   LoaderCircle,
+  LogOut,
   Mail,
   MessageSquare,
   Moon,
@@ -15,6 +16,8 @@ import {
   Send,
   Sun,
 } from "lucide-react";
+
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   Bar,
   BarChart,
@@ -517,6 +520,19 @@ export function AgentChat() {
               <Moon className="size-3.5 shrink-0" />
             )}
             {dark ? "Světlý motiv" : "Tmavý motiv"}
+          </button>
+
+          <button
+            type="button"
+            onClick={async () => {
+              const supabase = createSupabaseBrowserClient();
+              await supabase.auth.signOut();
+              window.location.href = "/login";
+            }}
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
+          >
+            <LogOut className="size-3.5 shrink-0" />
+            Odhlásit se
           </button>
         </div>
       </aside>
