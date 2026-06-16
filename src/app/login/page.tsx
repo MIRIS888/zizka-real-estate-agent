@@ -1,16 +1,43 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
-import { Building2 } from "lucide-react";
+import { Suspense, useEffect, useState } from "react";
+import { Building2, LoaderCircle, Moon, Sun } from "lucide-react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
+function ThemeToggle() {
+  const [dark, setDark] = useState(false);
+
+  useEffect(() => {
+    setDark(document.documentElement.classList.contains("dark"));
+  }, []);
+
+  function toggle() {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("theme", next ? "dark" : "light");
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      className="grid size-8 place-items-center rounded-lg text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
+      aria-label="Přepnout motiv"
+    >
+      {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+    </button>
+  );
+}
 
 function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
+  const [loading, setLoading] = useState(false);
 
   async function signInWithGoogle() {
+    setLoading(true);
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -21,45 +48,94 @@ function LoginContent() {
   }
 
   return (
-    <div className="flex h-full flex-col items-center justify-center bg-[var(--bg)]">
-      <div className="w-full max-w-sm px-6">
-        <div className="mb-10 flex flex-col items-center text-center">
-          <div className="grid size-11 place-items-center rounded-xl bg-[var(--primary)]">
-            <Building2 className="size-5 text-white" />
+    <div className="flex h-full bg-[var(--bg)]">
+      {/* Left panel — branding */}
+      <div className="hidden flex-col justify-between bg-[var(--primary)] p-10 lg:flex lg:w-[420px] lg:shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="grid size-8 place-items-center rounded-lg bg-white/10">
+            <Building2 className="size-4 text-white" />
           </div>
-          <h1 className="mt-5 text-xl font-semibold text-[var(--foreground)]">
-            Žižka Back Office
-          </h1>
-          <p className="mt-2 text-sm text-[var(--foreground-muted)]">
-            Přihlaste se pro přístup k systému
+          <span className="text-sm font-semibold text-white">Žižka Reality</span>
+        </div>
+
+        <div>
+          <p className="text-2xl font-semibold leading-snug text-white">
+            Back Office Agent
+          </p>
+          <p className="mt-3 text-sm leading-6 text-white/60">
+            Interní systém pro správu nemovitostí, leadů a komunikace se zájemci.
           </p>
         </div>
 
-        <div className="space-y-3">
-          <button
-            onClick={() => void signInWithGoogle()}
-            className="flex w-full items-center justify-center gap-3 rounded-xl border bg-[var(--surface)] px-4 py-3 text-sm font-medium text-[var(--foreground)] transition hover:bg-[var(--surface-muted)] active:scale-[0.99]"
-          >
-            <GoogleLogo />
-            Přihlásit se přes Google
-          </button>
+        <p className="text-xs text-white/30">© 2025 Žižka Reality</p>
+      </div>
+
+      {/* Right panel — login form */}
+      <div className="flex flex-1 flex-col">
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-6 py-4">
+          {/* Mobile logo */}
+          <div className="flex items-center gap-2 lg:hidden">
+            <div className="grid size-7 place-items-center rounded-lg bg-[var(--primary)]">
+              <Building2 className="size-3.5 text-white" />
+            </div>
+            <span className="text-sm font-semibold text-[var(--foreground)]">
+              Žižka
+            </span>
+          </div>
+          <div className="hidden lg:block" />
+          <ThemeToggle />
         </div>
 
-        {error && (
-          <p
-            className="mt-4 rounded-lg px-4 py-3 text-center text-xs"
-            style={{
-              backgroundColor: "var(--error-bg)",
-              color: "var(--error-text)",
-            }}
-          >
-            Přihlášení se nezdařilo. Zkuste to znovu nebo kontaktujte správce.
-          </p>
-        )}
+        {/* Form */}
+        <div className="flex flex-1 flex-col items-center justify-center px-6">
+          <div className="w-full max-w-[360px]">
+            <div className="mb-8">
+              <h1 className="text-2xl font-semibold text-[var(--foreground)]">
+                Přihlásit se
+              </h1>
+              <p className="mt-1.5 text-sm text-[var(--foreground-muted)]">
+                Přihlášení je dostupné pouze pro oprávněné uživatele.
+              </p>
+            </div>
 
-        <p className="mt-8 text-center text-xs text-[var(--foreground-muted)]">
-          Přístup pouze pro oprávněné uživatele.
-        </p>
+            <button
+              onClick={() => void signInWithGoogle()}
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-3 rounded-xl border bg-[var(--surface)] px-4 py-3 text-sm font-medium text-[var(--foreground)] shadow-sm transition hover:bg-[var(--surface-muted)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? (
+                <LoaderCircle className="size-4 animate-spin text-[var(--foreground-muted)]" />
+              ) : (
+                <GoogleLogo />
+              )}
+              {loading ? "Přesměrování…" : "Pokračovat přes Google"}
+            </button>
+
+            {error && (
+              <div
+                className="mt-4 rounded-xl px-4 py-3 text-sm"
+                style={{
+                  backgroundColor: "var(--error-bg)",
+                  color: "var(--error-text)",
+                }}
+              >
+                Přihlášení se nezdařilo. Zkuste to znovu nebo kontaktujte
+                správce systému.
+              </div>
+            )}
+
+            <p className="mt-8 text-center text-xs text-[var(--foreground-muted)]">
+              Nemáte přístup?{" "}
+              <a
+                href="mailto:info@zizka-reality.cz"
+                className="text-[var(--primary)] hover:underline"
+              >
+                Kontaktujte správce
+              </a>
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
