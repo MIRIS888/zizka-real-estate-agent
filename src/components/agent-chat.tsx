@@ -255,27 +255,21 @@ function EmailDraftView({
   draft: { to: string; subject: string; body: string };
 }) {
   return (
-    <div className="mt-4 overflow-hidden rounded-xl border bg-[var(--surface)]">
-      <div className="border-b px-4 py-2.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--foreground-muted)]">
-          Návrh e-mailu
-        </p>
-      </div>
-      <div className="divide-y">
-        <div className="flex gap-3 px-4 py-2.5">
-          <span className="w-16 shrink-0 text-xs text-[var(--foreground-muted)]">Komu</span>
-          <span className="text-xs font-medium text-[var(--foreground)]">{draft.to}</span>
-        </div>
-        <div className="flex gap-3 px-4 py-2.5">
-          <span className="w-16 shrink-0 text-xs text-[var(--foreground-muted)]">Předmět</span>
-          <span className="text-xs text-[var(--foreground)]">{draft.subject}</span>
-        </div>
-        <div className="px-4 py-3">
-          <p className="whitespace-pre-wrap text-xs leading-6 text-[var(--foreground)]">
-            {draft.body}
-          </p>
-        </div>
-      </div>
+    <div className="mt-4 rounded-xl border bg-[var(--surface)] px-5 py-4">
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--foreground-muted)]">
+        Návrh e-mailu
+      </p>
+      <p className="mb-0.5 text-xs text-[var(--foreground-muted)]">
+        <span className="text-[var(--foreground-muted)]">Komu: </span>
+        <span className="font-medium text-[var(--foreground)]">{draft.to}</span>
+      </p>
+      <p className="mb-4 text-xs text-[var(--foreground-muted)]">
+        <span className="text-[var(--foreground-muted)]">Předmět: </span>
+        <span className="text-[var(--foreground)]">{draft.subject}</span>
+      </p>
+      <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--foreground)]">
+        {draft.body}
+      </p>
     </div>
   );
 }
