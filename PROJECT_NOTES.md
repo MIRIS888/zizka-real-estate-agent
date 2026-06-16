@@ -38,6 +38,13 @@ This assignment is the north star for product, architecture, demo script, and de
   - protected by `N8N_WEBHOOK_SECRET`
 - Market digest webhook:
   - `POST /api/webhooks/n8n/market-digest`
+- Daily report webhook:
+  - `POST /api/webhooks/n8n/daily-report`
+  - validates and stores daily operations report runs in Supabase when `DATA_SOURCE=supabase`
+- Live market search from chat:
+  - Firecrawl Search integration is wired through `src/lib/tools/market-search.ts`
+  - search is restricted to properties for sale, not rentals
+  - results render as listing cards in chat instead of a generic table
 
 ## Assignment Scenarios Covered
 
@@ -57,9 +64,46 @@ Use these demo prompts:
 - `src/lib/tools/demo-operations.ts` - demo tools for sales chart, email draft, report, market watch.
 - `src/lib/local-data/seed.ts` - local demo data.
 - `src/lib/tools/lead-ingestion.ts` - webhook lead ingestion.
+- `src/lib/tools/market-search.ts` - Firecrawl live search over Czech real-estate portals.
+- `src/lib/tools/daily-report.ts` - n8n daily report payload validation and storage.
 - `src/app/api/webhooks/n8n/leads/route.ts` - lead webhook route.
+- `src/app/api/webhooks/n8n/daily-report/route.ts` - daily report webhook route.
 - `src/app/api/chat/route.ts` - chat API route.
+- `supabase/migrations/202606160001_daily_report_runs.sql` - storage for n8n daily reports.
 - `README.md` - setup and demo prompts.
+
+## 2026-06-16 Work Log
+
+- Added a new n8n daily report ingestion path:
+  - `src/app/api/webhooks/n8n/daily-report/route.ts`
+  - `src/lib/tools/daily-report.ts`
+  - `supabase/migrations/202606160001_daily_report_runs.sql`
+- Documented recommended n8n workflows in `README.md`:
+  - lead intake
+  - daily market digest
+  - daily operations report
+- Added live Firecrawl market search for chat requests such as:
+  - `Vyhledej nemovitosti v Holešovicích.`
+  - `Vyhledej byty na prodej v Holešovicích.`
+- Expanded supported market source domains:
+  - Sreality, Bezrealitky, iDNES Reality, RealityMix, České reality, UlovDomov,
+    Eurobydleni, RealHit, RealityMorava, RealityČechy, Bidli, RE/MAX,
+    MM Reality, Svoboda & Williams, Lexxus, Engel & Völkers.
+- Changed market search behavior to focus only on sale listings:
+  - query includes `prodej`
+  - query excludes `pronájem`, `pronajem`, `nájem`, `najem`
+  - planner instruction says not to search rentals or leases.
+- Improved market result rendering:
+  - market results now render as compact listing cards with source badges and open-link buttons
+  - other artifacts still use tables/charts.
+- Configured Firecrawl:
+  - local `.env.local` has `FIRECRAWL_API_KEY` and `FIRECRAWL_API_URL`
+  - Vercel Production has Firecrawl env vars and has been redeployed
+  - Firecrawl key was pasted in chat, so rotate it later if this moves beyond demo.
+- Deployed to Vercel production:
+  - main alias: `https://zizka-amber.vercel.app`
+- Pushed to GitHub:
+  - commit `0ce932c Add n8n reports and live market search`
 
 ## Verification Already Passed
 
@@ -78,19 +122,36 @@ Use these demo prompts:
 
 - The app is still a strong demo, not a production CRM.
 - Local mode uses demo data. Real storage requires `DATA_SOURCE=supabase` and Supabase env vars.
-- Real Gmail/Outlook/Google Calendar/real-estate portal integrations are represented by demo data and webhook architecture for now.
+- Google Calendar/Gmail are live when connected through Google OAuth.
+- Real-estate portal search is live through Firecrawl Search when `FIRECRAWL_API_KEY` is configured.
+- n8n workflows are designed/documented and webhook endpoints exist, but actual n8n workflow nodes still need to be built/configured.
 - Browser hydration warning came from an external browser attribute on `<html>`; `suppressHydrationWarning` was added in `src/app/layout.tsx`.
 - `gh` CLI is authenticated as `MIRIS888` outside the sandbox.
+- `vercel` CLI is usable via `npm exec vercel -- ...`; project is linked in `.vercel/project.json`.
 
 ## Next Steps
 
-- Run the app locally and inspect the UI visually.
-- Improve Czech copy and make the demo outputs look polished.
+- Build the actual n8n workflows:
+  - Schedule Trigger 07:30 Europe/Prague for market search/digest
+  - Schedule Trigger 08:00 Europe/Prague for daily operations report
+  - HTTP Request nodes should call the app webhooks with `Authorization: Bearer <N8N_WEBHOOK_SECRET>`
+  - normalize Firecrawl/search results before posting to `/api/webhooks/n8n/market-digest`
+  - combine Supabase internal metrics + market digest into `/api/webhooks/n8n/daily-report`
+- Apply Supabase migrations in the hosted Supabase project, especially:
+  - `supabase/migrations/202606160001_daily_report_runs.sql`
+- Seed or create real `market_watch_rules` rows in Supabase for locations such as Praha Holešovice.
+- Verify production chat manually after each deploy:
+  - `Vyhledej byty na prodej v Holešovicích.`
+  - check that results are sale listings and render as cards.
+- Rotate the Firecrawl API key before public demo if needed, because the original key was pasted into chat.
+- Improve daily report visibility in the UI:
+  - add dashboard card or page that shows latest `daily_report_runs`
+  - add latest market digest card for watched locations
+- Improve market result quality:
+  - consider a second Firecrawl scrape step for top results to extract price, address, size, disposition, and image
+  - deduplicate listings across domains
+  - filter out search/category pages when they are less useful than individual listings
 - Add clearer dashboard cards explaining integrations/workflows.
-- Prepare Vercel deployment:
-  - connect GitHub repo
-  - set env vars
-  - deploy
 - Record short video:
   - explain Pepa use case
   - show dashboard
