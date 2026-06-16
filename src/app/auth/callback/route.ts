@@ -4,8 +4,16 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { decodeGoogleToken, GOOGLE_TOKEN_COOKIE } from "@/lib/google/oauth";
 
+function getPublicOrigin(request: NextRequest): string {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const proto = request.headers.get("x-forwarded-proto") ?? "http";
+  if (host) return `${proto}://${host}`;
+  return new URL(request.url).origin;
+}
+
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const origin = getPublicOrigin(request);
+  const searchParams = new URL(request.url).searchParams;
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/";
 

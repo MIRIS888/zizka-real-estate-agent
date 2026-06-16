@@ -2,9 +2,16 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { createGoogleAuthorizationUrl } from "@/lib/google/oauth";
 
+function getPublicOrigin(request: NextRequest): string {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const proto = request.headers.get("x-forwarded-proto") ?? "http";
+  if (host) return `${proto}://${host}`;
+  return new URL(request.url).origin;
+}
+
 export function GET(request: NextRequest) {
   try {
-    const origin = new URL(request.url).origin;
+    const origin = getPublicOrigin(request);
     const redirectUri = `${origin}/api/auth/google/callback`;
     return NextResponse.redirect(createGoogleAuthorizationUrl(redirectUri));
   } catch (error) {
