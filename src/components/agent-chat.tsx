@@ -148,14 +148,9 @@ function buildHistory(messages: ChatMessage[]): ChatHistoryItem[] {
       return { role: "user" as const, content: msg.content };
     }
     let content = msg.response.message;
-    if (msg.response.intent === "email" && msg.response.artifact?.type === "table") {
-      const rows = msg.response.artifact.rows;
-      const to = rows.find((r) => r.field === "Komu")?.value ?? "";
-      const subject = rows.find((r) => r.field === "Predmet")?.value ?? "";
-      const body = rows.find((r) => r.field === "Text")?.value ?? "";
-      if (to) {
-        content += `\n\n[E-mail draft: Komu: ${to}, Předmět: ${subject}, Text: ${body}]`;
-      }
+    const draft = msg.response.emailDraft;
+    if (draft?.to) {
+      content += `\n\n[E-mail draft: Komu: ${draft.to}, Předmět: ${draft.subject}, Text: ${draft.body}]`;
     }
     return { role: "assistant" as const, content };
   });
@@ -250,6 +245,37 @@ function ArtifactView({ artifact }: { artifact: ResponseArtifact }) {
           </ResponsiveContainer>
         </div>
       )}
+    </div>
+  );
+}
+
+function EmailDraftView({
+  draft,
+}: {
+  draft: { to: string; subject: string; body: string };
+}) {
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border bg-[var(--surface)]">
+      <div className="border-b px-4 py-2.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--foreground-muted)]">
+          Návrh e-mailu
+        </p>
+      </div>
+      <div className="divide-y">
+        <div className="flex gap-3 px-4 py-2.5">
+          <span className="w-16 shrink-0 text-xs text-[var(--foreground-muted)]">Komu</span>
+          <span className="text-xs font-medium text-[var(--foreground)]">{draft.to}</span>
+        </div>
+        <div className="flex gap-3 px-4 py-2.5">
+          <span className="w-16 shrink-0 text-xs text-[var(--foreground-muted)]">Předmět</span>
+          <span className="text-xs text-[var(--foreground)]">{draft.subject}</span>
+        </div>
+        <div className="px-4 py-3">
+          <p className="whitespace-pre-wrap text-xs leading-6 text-[var(--foreground)]">
+            {draft.body}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -555,6 +581,9 @@ export function AgentChat() {
                 ) : (
                   <div key={msg.id}>
                     <MarkdownMessage content={msg.response.message} />
+                    {msg.response.emailDraft && (
+                      <EmailDraftView draft={msg.response.emailDraft} />
+                    )}
                     {msg.response.artifact && (
                       <ArtifactView artifact={msg.response.artifact} />
                     )}

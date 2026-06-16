@@ -409,19 +409,14 @@ export async function runAgent(
       userMessage,
       plan,
       {
-      intent: "email",
-      requiresConfirmation: true,
-      source: GOOGLE_CALENDAR_SOURCE,
-      artifact: {
-        type: "table",
-        title: "Navrh e-mailu",
-        columns: ["field", "value"],
-        rows: [
-          { field: "Komu", value: draft.recipientEmail },
-          { field: "Predmet", value: draft.subject },
-          { field: "Text", value: draft.body },
-        ],
-      },
+        intent: "email",
+        requiresConfirmation: true,
+        source: GOOGLE_CALENDAR_SOURCE,
+        emailDraft: {
+          to: draft.recipientEmail,
+          subject: draft.subject,
+          body: draft.body,
+        },
       },
       { input, draft },
     );

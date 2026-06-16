@@ -31,6 +31,13 @@ export const ChatResponseSchema = z.object({
     })
     .optional(),
   requiresConfirmation: z.boolean(),
+  emailDraft: z
+    .object({
+      to: z.string(),
+      subject: z.string(),
+      body: z.string(),
+    })
+    .optional(),
   artifact: z
     .discriminatedUnion("type", [
       z.object({
