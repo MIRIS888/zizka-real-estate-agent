@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createGoogleAuthorizationUrl } from "@/lib/google/oauth";
 
 function getPublicOrigin(request: NextRequest): string {
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
   const proto = request.headers.get("x-forwarded-proto") ?? "http";
   if (host) return `${proto}://${host}`;
