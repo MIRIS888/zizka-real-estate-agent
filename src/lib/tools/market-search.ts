@@ -20,9 +20,32 @@ const REAL_ESTATE_DOMAINS = [
   "sreality.cz",
   "bezrealitky.cz",
   "reality.idnes.cz",
+  "realitymix.cz",
+  "ceskereality.cz",
+  "ulovdomov.cz",
+  "eurobydleni.cz",
+  "realhit.cz",
+  "realitymorava.cz",
+  "realitycechy.cz",
+  "bidli.cz",
   "remax-czech.cz",
   "mmreality.cz",
+  "svoboda-williams.com",
+  "lexxus.cz",
+  "engelvoelkers.com",
 ];
+
+function buildMarketSearchQuery(locationQuery: string) {
+  return [
+    `"${locationQuery}"`,
+    "prodej",
+    "(byt OR dům OR dum OR nemovitost OR pozemek)",
+    "-pronájem",
+    "-pronajem",
+    "-nájem",
+    "-najem",
+  ].join(" ");
+}
 
 function getSearchResults(payload: FirecrawlSearchResponse) {
   if (Array.isArray(payload.data)) {
@@ -51,8 +74,8 @@ export async function searchMarketListings(rawInput: unknown) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      query: `${input.locationQuery} prodej byt dům nemovitost`,
-      limit: 8,
+      query: buildMarketSearchQuery(input.locationQuery),
+      limit: 20,
       country: "CZ",
       includeDomains: REAL_ESTATE_DOMAINS,
       sources: [{ type: "web", location: "Czech Republic" }],
@@ -76,6 +99,8 @@ export async function searchMarketListings(rawInput: unknown) {
   return {
     configured: true,
     query: input.locationQuery,
+    transactionType: "sale",
+    searchedDomains: REAL_ESTATE_DOMAINS,
     listings,
   };
 }

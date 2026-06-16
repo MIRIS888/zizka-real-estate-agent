@@ -5,6 +5,7 @@ import {
   BarChart2,
   Building2,
   Database,
+  ExternalLink,
   FileText,
   LoaderCircle,
   LogOut,
@@ -87,7 +88,7 @@ const SOURCE_LABELS: Record<ResponseSource["mode"], string> = {
   local_demo: "Demo data",
   supabase: "Databáze",
   planned_integration: "Integrace",
-  live: "Odesláno",
+  live: "Živě",
 };
 
 const QUICK_PROMPTS: QuickPrompt[] = [
@@ -123,7 +124,7 @@ const QUICK_PROMPTS: QuickPrompt[] = [
   },
   {
     prompt:
-      "Sleduj hlavní realitní servery a informuj mě o nových nabídkách v lokalitě Praha Holešovice.",
+      "Sleduj hlavní realitní servery a informuj mě o nových nemovitostech na prodej v lokalitě Praha Holešovice.",
     label: "Monitoring",
     icon: Radar,
   },
@@ -164,7 +165,94 @@ function createThreadTitle(message: string) {
   return trimmed.length <= 44 ? trimmed : `${trimmed.slice(0, 41)}…`;
 }
 
-function ArtifactView({ artifact }: { artifact: ResponseArtifact }) {
+function MarketListingsView({ artifact }: { artifact: ResponseArtifact }) {
+  if (artifact.type !== "table") return null;
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border bg-[var(--surface-muted)]">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div>
+          <p className="text-xs font-semibold text-[var(--foreground)]">
+            {artifact.title}
+          </p>
+          <p className="mt-0.5 text-[11px] text-[var(--foreground-muted)]">
+            {artifact.rows.length} nalezených výsledků
+          </p>
+        </div>
+        <span className="rounded bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--foreground-muted)]">
+          nabídky
+        </span>
+      </div>
+
+      <div className="divide-y">
+        {artifact.rows.map((row, index) => {
+          const title = String(row.title ?? "Nabídka bez názvu");
+          const description = String(row.description ?? "");
+          const source = String(row.source ?? "");
+          const url = String(row.url ?? "");
+
+          return (
+            <article key={`${url}-${index}`} className="px-4 py-3.5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="line-clamp-2 text-sm font-semibold leading-5 text-[var(--foreground)] transition hover:text-[var(--primary)]"
+                  >
+                    {title}
+                  </a>
+                  {description && (
+                    <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-[var(--foreground-muted)]">
+                      {description}
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {source && (
+                      <span className="rounded bg-[var(--surface)] px-2 py-1 text-[10px] font-medium text-[var(--foreground-muted)]">
+                        {source}
+                      </span>
+                    )}
+                    {url && (
+                      <span className="max-w-[320px] truncate text-[10px] text-[var(--foreground-muted)]">
+                        {url}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {url && (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="grid size-8 shrink-0 place-items-center rounded-lg border bg-[var(--surface)] text-[var(--foreground-muted)] transition hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+                    aria-label="Otevřít nabídku"
+                    title="Otevřít nabídku"
+                  >
+                    <ExternalLink className="size-3.5" />
+                  </a>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ArtifactView({
+  artifact,
+  intent,
+}: {
+  artifact: ResponseArtifact;
+  intent: ChatResponse["intent"];
+}) {
+  if (intent === "market_watch" && artifact.type === "table") {
+    return <MarketListingsView artifact={artifact} />;
+  }
+
   return (
     <div className="mt-4 overflow-hidden rounded-xl border bg-[var(--surface-muted)]">
       <div className="flex items-center justify-between border-b px-4 py-2.5">
@@ -278,11 +366,11 @@ function EmailDraftView({
 }
 
 function useTheme() {
-  const [dark, setDark] = useState(false);
-
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains("dark"));
-  }, []);
+  const [dark, setDark] = useState(() =>
+    typeof document === "undefined"
+      ? false
+      : document.documentElement.classList.contains("dark"),
+  );
 
   function toggle() {
     const next = !dark;
@@ -595,7 +683,10 @@ export function AgentChat() {
                       <EmailDraftView draft={msg.response.emailDraft} />
                     )}
                     {msg.response.artifact && (
-                      <ArtifactView artifact={msg.response.artifact} />
+                      <ArtifactView
+                        artifact={msg.response.artifact}
+                        intent={msg.response.intent}
+                      />
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span

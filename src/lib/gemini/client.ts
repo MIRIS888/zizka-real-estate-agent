@@ -37,6 +37,7 @@ For requests combining lead counts and sold properties, choose query_sales_metri
 For email requests involving a viewing, choose create_email_draft and set requiresConfirmation true.
 For weekly report or presentation requests, choose create_weekly_report.
 For requests to find, search, list, or monitor real estate listings on public real estate portals, choose watch_market.
+For public real estate portal searches, monitor only properties for sale. Do not search rentals, leases, or rental demand.
 If the user does not provide a date range for lead analytics, use the last 6 full months relative to the current date in the runtime context.
 When the user says "pošli to", "odešli", "ano pošli", "ok pošli", "potvrdit odeslání" or similar confirmation after a previous email draft in the conversation, choose send_email and extract the email details (to, subject, body) from the conversation history.
 

@@ -138,8 +138,8 @@ const LOCAL_REPORT_SOURCE = {
 const MARKET_WATCH_SOURCE = {
   label: "Realitní servery",
   detail:
-    "Výsledky jsou hledané přes Firecrawl Search na veřejných realitních serverech.",
-  mode: "planned_integration" as const,
+    "Výsledky jsou živě hledané přes Firecrawl Search na hlavních veřejných realitních serverech.",
+  mode: "live" as const,
 };
 
 async function createAgentPlan(
