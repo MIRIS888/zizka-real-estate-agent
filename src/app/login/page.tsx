@@ -1,37 +1,69 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
-import { Building2, LoaderCircle, Moon, Sun } from "lucide-react";
+import { Suspense, useState } from "react";
+import { Building2, LoaderCircle } from "lucide-react";
+import { Syne } from "next/font/google";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-function ThemeToggle() {
-  const [dark, setDark] = useState(false);
+const syne = Syne({ subsets: ["latin"], weight: ["700", "800"] });
 
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains("dark"));
-  }, []);
-
-  function toggle() {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.classList.toggle("dark", next);
-    localStorage.setItem("theme", next ? "dark" : "light");
-  }
+function BuildingOutline() {
+  const s = "#1E1E1E";
+  const st = "#191919";
+  const cols = [71, 171, 271];
+  const rows = [64, 131, 198, 265, 332];
 
   return (
-    <button
-      onClick={toggle}
-      className="grid size-8 place-items-center rounded-lg text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
-      aria-label="Přepnout motiv"
+    <svg
+      viewBox="0 0 400 490"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+      className="w-full h-full"
     >
-      {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-    </button>
+      {/* Cornice */}
+      <rect x="35" y="36" width="330" height="18" stroke={s} strokeWidth="1.2" />
+
+      {/* Building body */}
+      <rect x="50" y="54" width="300" height="416" stroke={s} strokeWidth="1.5" />
+
+      {/* Bay dividers */}
+      <line x1="150" y1="54" x2="150" y2="389" stroke={st} strokeWidth="0.6" />
+      <line x1="250" y1="54" x2="250" y2="389" stroke={st} strokeWidth="0.6" />
+
+      {/* Floor dividers */}
+      {[121, 188, 255, 322, 389].map((y) => (
+        <line key={y} x1="50" y1={y} x2="350" y2={y} stroke={st} strokeWidth="0.7" />
+      ))}
+
+      {/* Windows */}
+      {rows.map((wy) =>
+        cols.map((wx) => (
+          <rect
+            key={`${wx}-${wy}`}
+            x={wx}
+            y={wy}
+            width={58}
+            height={50}
+            stroke={s}
+            strokeWidth="1"
+          />
+        )),
+      )}
+
+      {/* Entrance door */}
+      <rect x="175" y="397" width="50" height="73" stroke={s} strokeWidth="1.2" />
+      <line x1="175" y1="416" x2="225" y2="416" stroke={st} strokeWidth="0.8" />
+
+      {/* Ground line */}
+      <line x1="0" y1="470" x2="400" y2="470" stroke="#161616" strokeWidth="1" />
+    </svg>
   );
 }
 
-function LoginContent() {
+function LoginForm() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
   const [loading, setLoading] = useState(false);
@@ -48,123 +80,43 @@ function LoginContent() {
   }
 
   return (
-    <div className="flex h-full bg-[var(--bg)]">
-      {/* Left panel — branding, always dark forest green regardless of theme */}
-      <div
-        className="relative hidden flex-col justify-between p-10 lg:flex lg:w-[380px] lg:shrink-0"
-        style={{
-          background: "linear-gradient(160deg, #0E2218 0%, #132B1E 60%, #0A1A12 100%)",
-          borderRight: "1px solid rgba(255,255,255,0.05)",
-        }}
+    <div className="flex w-full max-w-[340px] flex-col gap-7">
+      <h1
+        className={`${syne.className} text-[2.8rem] font-extrabold leading-[1.05] tracking-tight text-white sm:text-[3.4rem] xl:text-[4rem]`}
       >
-        {/* Subtle grid pattern overlay */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 lg:w-[380px]"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle, rgba(74,186,127,0.07) 1px, transparent 1px)",
-            backgroundSize: "28px 28px",
-          }}
-        />
+        Mějte přehled.
+      </h1>
 
-        <div className="relative flex items-center gap-2.5">
-          <div
-            className="grid size-8 place-items-center rounded-lg"
-            style={{ background: "rgba(74,186,127,0.15)", border: "1px solid rgba(74,186,127,0.25)" }}
-          >
-            <Building2 className="size-4" style={{ color: "#4ABA7F" }} />
-          </div>
-          <span className="text-sm font-semibold text-white/80">Žižka Reality</span>
-        </div>
+      <div className="flex flex-col gap-3">
+        <button
+          onClick={() => void signInWithGoogle()}
+          disabled={loading}
+          className="flex w-full items-center justify-center gap-3 rounded-full bg-white px-5 py-3.5 text-[15px] font-semibold text-black transition hover:bg-neutral-100 active:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {loading ? (
+            <LoaderCircle className="size-5 animate-spin text-black/40" />
+          ) : (
+            <GoogleLogo />
+          )}
+          {loading ? "Přesměrování…" : "Pokračovat přes Google"}
+        </button>
+      </div>
 
-        <div className="relative">
-          <p
-            className="text-[11px] font-semibold uppercase tracking-[0.15em] mb-3"
-            style={{ color: "rgba(74,186,127,0.6)" }}
-          >
-            Back Office
-          </p>
-          <p className="text-[1.6rem] font-semibold leading-tight text-white/90">
-            Správa nemovitostí<br />v jednom místě
-          </p>
-          <p className="mt-4 text-sm leading-6" style={{ color: "rgba(255,255,255,0.38)" }}>
-            Leady, nemovitosti a komunikace<br />se zájemci — vše přehledně.
-          </p>
-        </div>
-
-        <p className="relative text-xs" style={{ color: "rgba(255,255,255,0.2)" }}>
-          © 2025 Žižka Reality
+      {error && (
+        <p className="text-sm text-red-400">
+          Přihlášení se nezdařilo. Zkuste to znovu nebo kontaktujte správce.
         </p>
-      </div>
+      )}
 
-      {/* Right panel — login form */}
-      <div className="flex flex-1 flex-col">
-        {/* Top bar */}
-        <div className="flex items-center justify-between px-6 py-4">
-          {/* Mobile logo */}
-          <div className="flex items-center gap-2 lg:hidden">
-            <div className="grid size-7 place-items-center rounded-lg bg-[var(--primary)]">
-              <Building2 className="size-3.5 text-white" />
-            </div>
-            <span className="text-sm font-semibold text-[var(--foreground)]">
-              Žižka
-            </span>
-          </div>
-          <div className="hidden lg:block" />
-          <ThemeToggle />
-        </div>
-
-        {/* Form */}
-        <div className="flex flex-1 flex-col items-center justify-center px-6">
-          <div className="w-full max-w-[340px]">
-            <div className="mb-8">
-              <h1 className="text-[1.4rem] font-semibold text-[var(--foreground)]">
-                Přihlásit se
-              </h1>
-              <p className="mt-1.5 text-sm text-[var(--foreground-muted)]">
-                Přístup pouze pro oprávněné uživatele.
-              </p>
-            </div>
-
-            <button
-              onClick={() => void signInWithGoogle()}
-              disabled={loading}
-              className="flex w-full items-center justify-center gap-3 rounded-xl border bg-[var(--surface)] px-4 py-3 text-sm font-medium text-[var(--foreground)] shadow-sm transition hover:bg-[var(--surface-muted)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? (
-                <LoaderCircle className="size-4 animate-spin text-[var(--foreground-muted)]" />
-              ) : (
-                <GoogleLogo />
-              )}
-              {loading ? "Přesměrování…" : "Pokračovat přes Google"}
-            </button>
-
-            {error && (
-              <div
-                className="mt-4 rounded-xl px-4 py-3 text-sm"
-                style={{
-                  backgroundColor: "var(--error-bg)",
-                  color: "var(--error-text)",
-                }}
-              >
-                Přihlášení se nezdařilo. Zkuste to znovu nebo kontaktujte
-                správce systému.
-              </div>
-            )}
-
-            <p className="mt-8 text-center text-xs text-[var(--foreground-muted)]">
-              Nemáte přístup?{" "}
-              <a
-                href="mailto:info@zizka-reality.cz"
-                className="text-[var(--primary)] hover:underline"
-              >
-                Kontaktujte správce
-              </a>
-            </p>
-          </div>
-        </div>
-      </div>
+      <p className="text-[13px] leading-5 text-neutral-600">
+        Přístup pouze pro pozvané.{" "}
+        <a
+          href="mailto:info@zizka-reality.cz"
+          className="text-neutral-400 underline-offset-2 hover:underline"
+        >
+          Kontaktujte správce.
+        </a>
+      </p>
     </div>
   );
 }
@@ -172,7 +124,24 @@ function LoginContent() {
 export default function LoginPage() {
   return (
     <Suspense>
-      <LoginContent />
+      <div className="min-h-screen bg-black">
+        <div className="flex min-h-screen">
+          {/* Left column */}
+          <div className="flex flex-1 flex-col px-10 py-10 sm:px-14 lg:px-16 xl:px-24">
+            <Building2 className="size-8 shrink-0 text-white" />
+            <div className="flex flex-1 items-center">
+              <LoginForm />
+            </div>
+          </div>
+
+          {/* Right column — building outline */}
+          <div className="hidden lg:flex flex-1 items-center justify-center">
+            <div className="w-[38vw] max-w-[480px]">
+              <BuildingOutline />
+            </div>
+          </div>
+        </div>
+      </div>
     </Suspense>
   );
 }
