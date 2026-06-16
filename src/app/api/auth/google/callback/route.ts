@@ -21,17 +21,17 @@ export async function GET(request: NextRequest) {
   const error = searchParams.get("error");
 
   if (error) {
-    return NextResponse.redirect(`${origin}/?google=error:${error}`);
+    return NextResponse.redirect(`${origin}/login?error=google_denied`);
   }
 
   if (!code) {
-    return NextResponse.redirect(`${origin}/?google=missing-code`);
+    return NextResponse.redirect(`${origin}/login?error=google_failed`);
   }
 
   try {
     const redirectUri = `${origin}/api/auth/google/callback`;
     const token = await exchangeGoogleCode(code, redirectUri);
-    const response = NextResponse.redirect(`${origin}/?google=connected`);
+    const response = NextResponse.redirect(`${origin}/`);
     response.cookies.set(GOOGLE_TOKEN_COOKIE, encodeGoogleToken(token), {
       httpOnly: true,
       sameSite: "lax",
@@ -42,6 +42,6 @@ export async function GET(request: NextRequest) {
 
     return response;
   } catch {
-    return NextResponse.redirect(`${origin}/?google=error`);
+    return NextResponse.redirect(`${origin}/login?error=google_failed`);
   }
 }
