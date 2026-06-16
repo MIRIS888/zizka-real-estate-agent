@@ -481,3 +481,40 @@ export async function findGoogleCalendarAvailability(
 
   return { busySlots, freeWindows, freeSlots };
 }
+
+const GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
+
+export async function sendGmailMessage(
+  token: StoredGoogleToken,
+  options: { to: string; subject: string; body: string },
+): Promise<{ messageId: string }> {
+  const accessToken = await refreshAccessToken(token);
+
+  const subjectEncoded = `=?UTF-8?B?${Buffer.from(options.subject, "utf8").toString("base64")}?=`;
+  const bodyEncoded = Buffer.from(options.body, "utf8").toString("base64");
+  const rawMessage = [
+    `To: ${options.to}`,
+    `Subject: ${subjectEncoded}`,
+    `Content-Type: text/plain; charset=UTF-8`,
+    `Content-Transfer-Encoding: base64`,
+    ``,
+    bodyEncoded,
+  ].join("\r\n");
+
+  const response = await fetch(GMAIL_SEND_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ raw: Buffer.from(rawMessage, "utf8").toString("base64url") }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gmail send failed: ${errorText}`);
+  }
+
+  const result = (await response.json()) as { id: string };
+  return { messageId: result.id };
+}

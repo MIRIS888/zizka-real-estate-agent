@@ -9,12 +9,12 @@ import { decodeGoogleToken, GOOGLE_TOKEN_COOKIE } from "@/lib/google/oauth";
 export async function POST(request: Request) {
   try {
     const requestBody: unknown = await request.json();
-    const { message } = ChatRequestSchema.parse(requestBody);
+    const { message, history } = ChatRequestSchema.parse(requestBody);
     const cookieStore = await cookies();
     const googleToken = decodeGoogleToken(
       cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value,
     );
-    const response = await runAgent(message, { googleToken });
+    const response = await runAgent(message, { googleToken, history });
 
     return NextResponse.json(response);
   } catch (error) {

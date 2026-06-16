@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 
 import { AgentPlanSchema, type AgentPlan } from "@/lib/contracts/tools";
+import { type ChatHistoryItem } from "@/lib/contracts/chat";
 import { getGeminiEnvironment } from "@/lib/env";
 
 
@@ -18,6 +19,8 @@ Allowed tools:
   {"fields":["reconstruction_year","building_modifications","energy_rating","floor_area"]}
 - create_email_draft: Use for drafting an email to an interested buyer and recommending a viewing slot. Input shape:
   {"recipientEmail":"optional@email.cz","propertyTitle":"string","tone":"formal|friendly","dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"durationMinutes":45,"timezone":"Europe/Prague"}
+- send_email: Use when the user confirms sending or explicitly asks to send an email that was already drafted in this conversation. Extract to/subject/body from the conversation history. Input shape:
+  {"to":"email@address.cz","subject":"string","body":"string"}
 - find_calendar_slots: Use for checking available calendar/viewing slots without drafting an email. Input shape:
   {"dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"durationMinutes":45,"timezone":"Europe/Prague"}
 - create_weekly_report: Use for weekly management reports and three-slide presentation drafts. Input shape:
@@ -35,12 +38,13 @@ For email requests involving a viewing, choose create_email_draft and set requir
 For weekly report or presentation requests, choose create_weekly_report.
 For requests to find, search, list, or monitor real estate listings on public real estate portals, choose watch_market.
 If the user does not provide a date range for lead analytics, use the last 6 full months relative to the current date in the runtime context.
+When the user says "pošli to", "odešli", "ano pošli", "ok pošli", "potvrdit odeslání" or similar confirmation after a previous email draft in the conversation, choose send_email and extract the email details (to, subject, body) from the conversation history.
 
 Return this JSON shape:
 {
   "message": "short Czech message",
   "intent": "analytics | data_quality | calendar | email | report | market_watch | general",
-  "toolName": "none | query_lead_metrics | query_sales_metrics | find_incomplete_properties | find_calendar_slots | create_email_draft | create_weekly_report | watch_market",
+  "toolName": "none | query_lead_metrics | query_sales_metrics | find_incomplete_properties | find_calendar_slots | create_email_draft | send_email | create_weekly_report | watch_market",
   "toolInput": {},
   "requiresConfirmation": boolean
 }
@@ -119,6 +123,7 @@ export async function generateAgentPlan(
   context?: {
     currentDate?: string;
     googleCalendarConnected?: boolean;
+    history?: ChatHistoryItem[];
   },
 ): Promise<AgentPlan> {
   const environment = getGeminiEnvironment();
@@ -130,9 +135,21 @@ For relative dates, calculate ranges from the current date above.
 If the user asks only for available viewing slots or calendar availability, choose find_calendar_slots.
 `;
 
+  const history = context?.history ?? [];
+  const contents =
+    history.length > 0
+      ? [
+          ...history.map((item) => ({
+            role: item.role === "user" ? ("user" as const) : ("model" as const),
+            parts: [{ text: item.content }],
+          })),
+          { role: "user" as const, parts: [{ text: userMessage }] },
+        ]
+      : userMessage;
+
   const response = await client.models.generateContent({
     model: environment.GEMINI_MODEL,
-    contents: userMessage,
+    contents,
     config: {
       systemInstruction: `${PLANNER_INSTRUCTION}\n${contextInstruction}`,
       responseMimeType: "application/json",

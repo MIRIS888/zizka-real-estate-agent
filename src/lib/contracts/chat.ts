@@ -1,8 +1,16 @@
 import { z } from "zod";
 
+export const ChatHistoryItemSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().min(1).max(8_000),
+});
+
 export const ChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4_000),
+  history: z.array(ChatHistoryItemSchema).max(20).optional(),
 });
+
+export type ChatHistoryItem = z.infer<typeof ChatHistoryItemSchema>;
 
 export const ChatResponseSchema = z.object({
   message: z.string().min(1),

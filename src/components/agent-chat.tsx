@@ -25,6 +25,7 @@ import {
 
 import {
   ChatResponseSchema,
+  type ChatHistoryItem,
   type ChatResponse,
 } from "@/lib/contracts/chat";
 
@@ -141,6 +142,26 @@ function createThread(): ChatThread {
     }),
     messages: [],
   };
+}
+
+function buildHistory(messages: ChatMessage[]): ChatHistoryItem[] {
+  return messages.slice(-16).map((msg) => {
+    if (msg.role === "user") {
+      return { role: "user" as const, content: msg.content };
+    }
+    let content = msg.response.message;
+    // Include email draft details so planner can extract them for send_email
+    if (msg.response.intent === "email" && msg.response.artifact?.type === "table") {
+      const rows = msg.response.artifact.rows;
+      const to = rows.find((r) => r.field === "Komu")?.value ?? "";
+      const subject = rows.find((r) => r.field === "Predmet")?.value ?? "";
+      const body = rows.find((r) => r.field === "Text")?.value ?? "";
+      if (to) {
+        content += `\n\n[E-mail draft: Komu: ${to}, Předmět: ${subject}, Text: ${body}]`;
+      }
+    }
+    return { role: "assistant" as const, content };
+  });
 }
 
 function createThreadTitle(message: string) {
@@ -310,7 +331,10 @@ export function AgentChat() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed }),
+        body: JSON.stringify({
+          message: trimmed,
+          history: buildHistory(activeThread?.messages ?? []),
+        }),
       });
       const payload: unknown = await res.json();
 

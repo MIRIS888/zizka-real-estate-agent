@@ -1,4 +1,4 @@
-import { type ChatResponse } from "@/lib/contracts/chat";
+import { type ChatResponse, type ChatHistoryItem } from "@/lib/contracts/chat";
 import {
   AgentPlanSchema,
   CreateEmailDraftInputSchema,
@@ -7,6 +7,7 @@ import {
   FindIncompletePropertiesInputSchema,
   QueryLeadMetricsInputSchema,
   QuerySalesMetricsInputSchema,
+  SendEmailInputSchema,
   WatchMarketInputSchema,
   type AgentPlan,
 } from "@/lib/contracts/tools";
@@ -22,7 +23,7 @@ import {
 import { queryLeadMetrics } from "@/lib/tools/lead-metrics";
 import { searchMarketListings } from "@/lib/tools/market-search";
 import { findIncompleteProperties } from "@/lib/tools/property-quality";
-import { type StoredGoogleToken } from "@/lib/google/oauth";
+import { sendGmailMessage, type StoredGoogleToken } from "@/lib/google/oauth";
 
 function formatDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -143,12 +144,13 @@ const MARKET_WATCH_SOURCE = {
 
 async function createAgentPlan(
   userMessage: string,
-  options?: { googleToken?: StoredGoogleToken | null },
+  options?: { googleToken?: StoredGoogleToken | null; history?: ChatHistoryItem[] },
 ): Promise<AgentPlan> {
   return AgentPlanSchema.parse(
     await generateAgentPlan(userMessage, {
       currentDate: new Date().toISOString().slice(0, 10),
       googleCalendarConnected: Boolean(options?.googleToken),
+      history: options?.history,
     }),
   );
 }
@@ -183,7 +185,7 @@ async function withGeminiMessage(
 
 export async function runAgent(
   userMessage: string,
-  options?: { googleToken?: StoredGoogleToken | null },
+  options?: { googleToken?: StoredGoogleToken | null; history?: ChatHistoryItem[] },
 ): Promise<ChatResponse> {
   const plan = AgentPlanSchema.parse(await createAgentPlan(userMessage, options));
 
@@ -413,6 +415,47 @@ export async function runAgent(
       },
       },
       { input, draft },
+    );
+  }
+
+  if (plan.toolName === "send_email") {
+    if (!options?.googleToken) {
+      return withGeminiMessage(
+        userMessage,
+        plan,
+        {
+          intent: "email",
+          requiresConfirmation: false,
+          source: {
+            label: "Google účet není připojený",
+            detail: "Pro odesílání e-mailů je potřeba připojit Google účet.",
+            mode: "planned_integration",
+          },
+        },
+        { sent: false, reason: "google_not_connected" },
+      );
+    }
+
+    const input = SendEmailInputSchema.parse(plan.toolInput);
+    const result = await sendGmailMessage(options.googleToken, {
+      to: input.to,
+      subject: input.subject,
+      body: input.body,
+    });
+
+    return withGeminiMessage(
+      userMessage,
+      plan,
+      {
+        intent: "email",
+        requiresConfirmation: false,
+        source: {
+          label: "Gmail",
+          detail: `E-mail byl odeslán na ${input.to} přes Gmail API.`,
+          mode: "planned_integration",
+        },
+      },
+      { sent: true, messageId: result.messageId, to: input.to, subject: input.subject },
     );
   }
 

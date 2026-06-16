@@ -52,6 +52,12 @@ export const WatchMarketInputSchema = z.object({
   cadence: z.enum(["daily", "weekly"]).default("daily"),
 });
 
+export const SendEmailInputSchema = z.object({
+  to: z.email(),
+  subject: z.string().min(1),
+  body: z.string().min(1),
+});
+
 export const AgentToolNameSchema = z.enum([
   "none",
   "query_lead_metrics",
@@ -59,6 +65,7 @@ export const AgentToolNameSchema = z.enum([
   "find_incomplete_properties",
   "find_calendar_slots",
   "create_email_draft",
+  "send_email",
   "create_weekly_report",
   "watch_market",
 ]);
