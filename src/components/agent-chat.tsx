@@ -31,6 +31,7 @@ import {
   type ChatHistoryItem,
   type ChatResponse,
 } from "@/lib/contracts/chat";
+import { MarkdownMessage } from "@/components/markdown-message";
 
 type ResponseArtifact = NonNullable<ChatResponse["artifact"]>;
 type ResponseSource = NonNullable<ChatResponse["source"]>;
@@ -553,9 +554,7 @@ export function AgentChat() {
                   </div>
                 ) : (
                   <div key={msg.id}>
-                    <p className="whitespace-pre-line text-sm leading-7 text-[var(--foreground)]">
-                      {msg.response.message}
-                    </p>
+                    <MarkdownMessage content={msg.response.message} />
                     {msg.response.artifact && (
                       <ArtifactView artifact={msg.response.artifact} />
                     )}
