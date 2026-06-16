@@ -19,6 +19,17 @@ const N8nEnvironmentSchema = z.object({
   N8N_WEBHOOK_SECRET: z.string().min(24),
 });
 
+const GoogleOAuthEnvironmentSchema = z.object({
+  GOOGLE_CLIENT_ID: z.string().min(1),
+  GOOGLE_CLIENT_SECRET: z.string().min(1),
+  GOOGLE_REDIRECT_URI: z.url(),
+});
+
+const FirecrawlEnvironmentSchema = z.object({
+  FIRECRAWL_API_KEY: z.string().min(1),
+  FIRECRAWL_API_URL: z.url().default("https://api.firecrawl.dev/v2"),
+});
+
 export function getGeminiEnvironment() {
   const parsedEnvironment = ServerEnvironmentSchema.safeParse({
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
@@ -74,4 +85,50 @@ export function getN8nEnvironment() {
   }
 
   return parsedEnvironment.data;
+}
+
+export function getGoogleOAuthEnvironment() {
+  const parsedEnvironment = GoogleOAuthEnvironmentSchema.safeParse({
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
+  });
+
+  if (!parsedEnvironment.success) {
+    throw new Error(
+      "Google OAuth is not configured. Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI to .env.local.",
+    );
+  }
+
+  return parsedEnvironment.data;
+}
+
+export function isGoogleOAuthConfigured() {
+  return GoogleOAuthEnvironmentSchema.safeParse({
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
+  }).success;
+}
+
+export function getFirecrawlEnvironment() {
+  const parsedEnvironment = FirecrawlEnvironmentSchema.safeParse({
+    FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY,
+    FIRECRAWL_API_URL: process.env.FIRECRAWL_API_URL,
+  });
+
+  if (!parsedEnvironment.success) {
+    throw new Error(
+      "Firecrawl is not configured. Add FIRECRAWL_API_KEY to .env.local.",
+    );
+  }
+
+  return parsedEnvironment.data;
+}
+
+export function isFirecrawlConfigured() {
+  return FirecrawlEnvironmentSchema.safeParse({
+    FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY,
+    FIRECRAWL_API_URL: process.env.FIRECRAWL_API_URL,
+  }).success;
 }

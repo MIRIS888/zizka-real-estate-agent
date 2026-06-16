@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { ZodError } from "zod";
 
 import { ChatRequestSchema } from "@/lib/contracts/chat";
 import { runAgent } from "@/lib/agent/run-agent";
+import { decodeGoogleToken, GOOGLE_TOKEN_COOKIE } from "@/lib/google/oauth";
 
 export async function POST(request: Request) {
   try {
     const requestBody: unknown = await request.json();
     const { message } = ChatRequestSchema.parse(requestBody);
-    const response = await runAgent(message);
+    const cookieStore = await cookies();
+    const googleToken = decodeGoogleToken(
+      cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value,
+    );
+    const response = await runAgent(message, { googleToken });
 
     return NextResponse.json(response);
   } catch (error) {

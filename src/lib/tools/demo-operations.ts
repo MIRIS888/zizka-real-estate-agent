@@ -1,15 +1,19 @@
 import {
   CreateEmailDraftInputSchema,
   CreateWeeklyReportInputSchema,
+  FindCalendarSlotsInputSchema,
   QuerySalesMetricsInputSchema,
   WatchMarketInputSchema,
 } from "@/lib/contracts/tools";
 import {
-  localCalendarSlots,
   localLeads,
   localMarketListings,
   localSales,
 } from "@/lib/local-data/seed";
+import {
+  findGoogleCalendarAvailability,
+  type StoredGoogleToken,
+} from "@/lib/google/oauth";
 
 type MonthlyPerformance = {
   month: string;
@@ -77,10 +81,33 @@ export function queryMonthlyPerformance(
   );
 }
 
-export function createViewingEmailDraft(rawInput: unknown) {
+export async function createViewingEmailDraft(
+  rawInput: unknown,
+  options?: { googleToken?: StoredGoogleToken | null },
+) {
   const input = CreateEmailDraftInputSchema.parse(rawInput);
-  const recommendedSlot = localCalendarSlots[0];
+  const availability = await findGoogleCalendarAvailability(options?.googleToken, {
+    dateRange: input.dateRange,
+    durationMinutes: input.durationMinutes,
+    timezone: input.timezone,
+  });
+  const calendarSlots = availability?.freeSlots ?? [];
   const propertyTitle = input.propertyTitle ?? "nabizenou nemovitost";
+
+  if (calendarSlots.length === 0) {
+    return {
+      recommendedSlot: null,
+      subject: `Prohlidka nemovitosti: ${propertyTitle}`,
+      body: "",
+      recipientEmail: input.recipientEmail ?? "zajemce@example.com",
+      source: availability ? "no_google_slots" : "not_connected",
+      alternatives: [],
+      freeWindows: availability?.freeWindows ?? [],
+      busySlots: availability?.busySlots ?? [],
+    };
+  }
+
+  const recommendedSlot = calendarSlots[0];
   const greeting =
     input.tone === "friendly" ? "Dobry den," : "Dobry den, vazeny zajemce,";
 
@@ -91,7 +118,7 @@ export function createViewingEmailDraft(rawInput: unknown) {
 
 dekujeme za zajem o ${propertyTitle}. Podle aktualni dostupnosti navrhuji prohlidku v terminu ${recommendedSlot.label}.
 
-Pokud se Vam termin nehodi, mohu nabidnout jeste ${localCalendarSlots
+Pokud se Vam termin nehodi, mohu nabidnout jeste ${calendarSlots
       .slice(1)
       .map((slot) => slot.label)
       .join(" nebo ")}.
@@ -101,6 +128,28 @@ Prosim o potvrzeni, ktery termin Vam vyhovuje.
 S pozdravem
 Back office tym`,
     recipientEmail: input.recipientEmail ?? "zajemce@example.com",
+    source: "google_calendar",
+    alternatives: calendarSlots.slice(1),
+    freeWindows: availability?.freeWindows ?? [],
+    busySlots: availability?.busySlots ?? [],
+  };
+}
+
+export async function findViewingSlots(
+  rawInput: unknown,
+  options?: { googleToken?: StoredGoogleToken | null },
+) {
+  const input = FindCalendarSlotsInputSchema.parse(rawInput);
+  const availability = await findGoogleCalendarAvailability(
+    options?.googleToken,
+    input,
+  );
+
+  return {
+    busySlots: availability?.busySlots ?? [],
+    freeWindows: availability?.freeWindows ?? [],
+    slots: availability?.freeSlots ?? [],
+    source: availability ? "google_calendar" : "not_connected",
   };
 }
 

@@ -4,6 +4,8 @@ Jsi seniorní AI Architekt a Vývojář. Tvým úkolem je navrhnout a naprogramo
 
 Agent musí plně automatizovat práci Back Office Managera (Pepy), který koordinuje e-maily, kalendáře, tabulky, interní dokumenty a realitní data. Agent musí umět jak ad-hoc analýzu dat, tak plánované tasky (cron jobs) a orchestraci workflow.
 
+Autoritativní zadání projektu je uložené v `PROJECT_NOTES.md` v sekci `Source Assignment To Follow`. Při každém produktovém, architektonickém nebo UI rozhodnutí se drž tohoto zadání a šesti povinných scénářů.
+
 ---
 
 ## 🛠️ Navržený Technologický Stack

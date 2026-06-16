@@ -1,9 +1,4 @@
-import {
-  Building2,
-  CalendarDays,
-  ChartNoAxesCombined,
-  CircleCheckBig,
-} from "lucide-react";
+import { Building2, CalendarDays, ChartNoAxesCombined, CircleCheckBig } from "lucide-react";
 
 import { AgentChat } from "@/components/agent-chat";
 
@@ -36,58 +31,61 @@ const metrics = [
 
 export default function Home() {
   return (
-    <main className="mx-auto min-h-screen max-w-7xl px-5 py-6 sm:px-8 lg:px-10">
-      <header className="mb-8 flex flex-col justify-between gap-4 border-b pb-6 sm:flex-row sm:items-end">
-        <div>
-          <p className="mb-2 text-xs font-bold uppercase tracking-[0.24em] text-[var(--primary)]">
-            Real Estate Operations
-          </p>
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-            Přehled back office
-          </h1>
-        </div>
-        <div className="flex items-center gap-2 rounded-full border bg-white px-4 py-2 text-sm text-[var(--muted)] shadow-sm">
-          <span className="size-2 rounded-full bg-emerald-500" />
-          Gemini agent připraven
-        </div>
-      </header>
-
-      <section className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {metrics.map(({ label, value, detail, icon: Icon }) => (
-          <article
-            key={label}
-            className="rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_12px_35px_rgb(23_32_25/5%)]"
-          >
-            <div className="mb-5 flex items-start justify-between">
-              <p className="text-sm font-medium text-[var(--muted)]">{label}</p>
-              <Icon className="size-5 text-[var(--primary)]" />
-            </div>
-            <p className="text-3xl font-semibold">{value}</p>
-            <p className="mt-2 text-xs text-[var(--muted)]">{detail}</p>
-          </article>
-        ))}
-      </section>
-
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <AgentChat />
-
-        <aside className="rounded-2xl border bg-[var(--primary)] p-6 text-white shadow-[0_16px_40px_rgb(21_67_50/18%)]">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-100">
-            Rychlé dotazy
-          </p>
-          <h2 className="mt-3 text-xl font-semibold">Co může agent vyřešit?</h2>
-          <div className="mt-6 space-y-3 text-sm leading-6 text-emerald-50">
-            <p>„Ukaž vývoj leadů za posledních 6 měsíců.“</p>
-            <p>„Najdi nemovitosti s neúplnými údaji.“</p>
-            <p>„Navrhni termín prohlídky a připrav e-mail.“</p>
-            <p>„Vytvoř týdenní report pro vedení.“</p>
+    <div className="flex min-h-screen flex-col bg-[var(--bg)]">
+      <nav className="border-b bg-[var(--surface)]">
+        <div className="mx-auto flex h-14 max-w-screen-xl items-center justify-between px-4 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <Building2 className="size-4 text-[var(--primary)]" />
+            <span className="text-sm font-semibold text-[var(--foreground)]">
+              Žižka Reality
+            </span>
+            <span className="text-[var(--border-strong)]">·</span>
+            <span className="text-sm text-[var(--foreground-muted)]">
+              Back Office Agent
+            </span>
           </div>
-          <div className="mt-8 rounded-xl bg-white/10 p-4 text-xs leading-5 text-emerald-50">
-            Akce jako odeslání e-mailu nebo změna dat budou vždy vyžadovat
-            potvrzení.
+          <div className="flex items-center gap-4 text-[11px] text-[var(--foreground-muted)]">
+            <span className="hidden items-center gap-1.5 sm:flex">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
+              n8n webhooks
+            </span>
+            <span className="hidden items-center gap-1.5 sm:flex">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
+              Supabase ready
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+              Agent připraven
+            </span>
           </div>
-        </aside>
-      </section>
-    </main>
+        </div>
+      </nav>
+
+      <main className="mx-auto flex w-full max-w-screen-xl flex-1 flex-col px-4 py-5 sm:px-6">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {metrics.map(({ label, value, detail, icon: Icon }) => (
+            <article
+              key={label}
+              className="rounded-xl border bg-[var(--surface)] p-4"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--foreground-muted)]">
+                  {label}
+                </p>
+                <Icon className="mt-0.5 size-3.5 shrink-0 text-[var(--primary)] opacity-50" />
+              </div>
+              <p className="mt-3 text-3xl font-bold tracking-tight text-[var(--foreground)]">
+                {value}
+              </p>
+              <p className="mt-1 text-xs text-[var(--foreground-muted)]">{detail}</p>
+            </article>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-1 flex-col">
+          <AgentChat />
+        </div>
+      </main>
+    </div>
   );
 }

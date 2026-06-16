@@ -1,15 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f3f4ef;
-  --foreground: #172019;
-  --surface: #ffffff;
-  --surface-muted: #e9ece5;
-  --border: #d7dbd2;
-  --primary: #1f5c45;
-  --primary-strong: #154332;
-  --accent: #d9a441;
-  --muted: #667069;
+  --bg: #F2F1ED;
+  --surface: #FFFFFF;
+  --surface-muted: #EFEDE7;
+  --primary: #1D4D38;
+  --primary-light: #EBF3EE;
+  --primary-strong: #133328;
+  --accent: #B8893B;
+  --accent-light: #FBF5EB;
+  --foreground: #141B18;
+  --foreground-muted: #5E6762;
+  --border: #DDD9D0;
+  --border-strong: #C5C1B8;
 }
 
 * {
@@ -18,14 +21,22 @@
 
 body {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top right, rgb(217 164 65 / 14%), transparent 28rem),
-    var(--background);
+  background: var(--bg);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button,
 textarea {
   font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
 }

@@ -3,147 +3,189 @@ import {
   AgentPlanSchema,
   CreateEmailDraftInputSchema,
   CreateWeeklyReportInputSchema,
+  FindCalendarSlotsInputSchema,
   FindIncompletePropertiesInputSchema,
   QueryLeadMetricsInputSchema,
   QuerySalesMetricsInputSchema,
   WatchMarketInputSchema,
   type AgentPlan,
 } from "@/lib/contracts/tools";
-import { generateAgentPlan } from "@/lib/gemini/client";
+import { generateAgentPlan, generateToolResponse } from "@/lib/gemini/client";
+import { getDataSourceEnvironment } from "@/lib/env";
 import { getDefaultOrganizationId } from "@/lib/supabase/server";
 import {
   createViewingEmailDraft,
   createWeeklyReport,
+  findViewingSlots,
   queryMonthlyPerformance,
-  watchMarket,
 } from "@/lib/tools/demo-operations";
 import { queryLeadMetrics } from "@/lib/tools/lead-metrics";
+import { searchMarketListings } from "@/lib/tools/market-search";
 import { findIncompleteProperties } from "@/lib/tools/property-quality";
+import { type StoredGoogleToken } from "@/lib/google/oauth";
 
-function normalizeMessage(message: string) {
-  return message
-    .toLocaleLowerCase("cs-CZ")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+function formatDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
-async function createDemoPlan(userMessage: string): Promise<AgentPlan> {
-  const normalizedMessage = normalizeMessage(userMessage);
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
 
-  if (
-    normalizedMessage.includes("prodanych nemovitosti") ||
-    normalizedMessage.includes("prodane nemovitosti") ||
-    normalizedMessage.includes("poslednich 6 mesicu")
-  ) {
-    return {
-      message: "Pripravim vyvoj leadu a prodanych nemovitosti.",
-      intent: "analytics",
-      toolName: "query_sales_metrics",
-      toolInput: {
-        dateRange: {
-          from: "2026-01-01",
-          to: "2026-06-30",
-        },
-      },
-      requiresConfirmation: false,
-    };
-  }
-
-  if (
-    normalizedMessage.includes("1. kvartal") ||
-    normalizedMessage.includes("prvni kvartal") ||
-    normalizedMessage.includes("odkud prisli") ||
-    normalizedMessage.includes("nove klienty")
-  ) {
-    return {
-      message: "Zjistim nove klienty podle zdroje za prvni kvartal.",
-      intent: "analytics",
-      toolName: "query_lead_metrics",
-      toolInput: {
-        dateRange: {
-          from: "2026-01-01",
-          to: "2026-03-31",
-        },
-        groupBy: "source",
-      },
-      requiresConfirmation: false,
-    };
-  }
-
-  if (
-    normalizedMessage.includes("email") ||
-    normalizedMessage.includes("e-mail") ||
-    normalizedMessage.includes("prohlidky") ||
-    normalizedMessage.includes("kalendar")
-  ) {
-    return {
-      message: "Pripravim navrh e-mailu a doporucim termin prohlidky.",
-      intent: "email",
-      toolName: "create_email_draft",
-      toolInput: {
-        propertyTitle: "Byt 2+kk, Praha-Holesovice",
-        tone: "formal",
-      },
-      requiresConfirmation: true,
-    };
-  }
-
-  if (
-    normalizedMessage.includes("report") ||
-    normalizedMessage.includes("prezentaci") ||
-    normalizedMessage.includes("slidy") ||
-    normalizedMessage.includes("vedeni")
-  ) {
-    return {
-      message: "Pripravim tydenni report a navrh tri slidu pro vedeni.",
-      intent: "report",
-      toolName: "create_weekly_report",
-      toolInput: {
-        weekStart: "2026-06-08",
-        audience: "management",
-      },
-      requiresConfirmation: false,
-    };
-  }
-
-  if (
-    normalizedMessage.includes("sleduj") ||
-    normalizedMessage.includes("realitni servery") ||
-    normalizedMessage.includes("holesovice")
-  ) {
-    return {
-      message: "Pripravim ranni monitoring novych nabidek.",
-      intent: "market_watch",
-      toolName: "watch_market",
-      toolInput: {
-        locationQuery: "Praha Holesovice",
-        cadence: "daily",
-      },
-      requiresConfirmation: false,
-    };
-  }
-
-  if (
-    normalizedMessage.includes("rekonstrukci") ||
-    normalizedMessage.includes("stavebnich upravach") ||
-    normalizedMessage.includes("chybi data")
-  ) {
-    return {
-      message: "Zkontroluji nemovitosti s chybejicimi technickymi udaji.",
-      intent: "data_quality",
-      toolName: "find_incomplete_properties",
-      toolInput: {
-        fields: ["reconstruction_year", "building_modifications"],
-      },
-      requiresConfirmation: false,
-    };
-  }
-
-  return AgentPlanSchema.parse(await generateAgentPlan(userMessage));
+  return nextDate;
 }
 
-export async function runAgent(userMessage: string): Promise<ChatResponse> {
-  const plan = AgentPlanSchema.parse(await createDemoPlan(userMessage));
+function inferDateRangeFromMessage(userMessage: string) {
+  const normalizedMessage = userMessage.toLocaleLowerCase("cs-CZ");
+  const today = new Date();
+  const explicitDateMatch = normalizedMessage.match(
+    /\b(\d{1,2})\.\s*(\d{1,2})\.?(?:\s*(\d{4}))?\b/,
+  );
+
+  if (explicitDateMatch) {
+    const day = Number(explicitDateMatch[1]);
+    const month = Number(explicitDateMatch[2]);
+    const year = explicitDateMatch[3]
+      ? Number(explicitDateMatch[3])
+      : today.getFullYear();
+    const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    const dateKey = formatDateKey(date);
+
+    return { from: dateKey, to: dateKey };
+  }
+
+  if (normalizedMessage.includes("pozitri") || normalizedMessage.includes("pozítří")) {
+    const dateKey = formatDateKey(addDays(today, 2));
+
+    return { from: dateKey, to: dateKey };
+  }
+
+  if (normalizedMessage.includes("zitra") || normalizedMessage.includes("zítra")) {
+    const dateKey = formatDateKey(addDays(today, 1));
+
+    return { from: dateKey, to: dateKey };
+  }
+
+  if (normalizedMessage.includes("dnes")) {
+    const dateKey = formatDateKey(today);
+
+    return { from: dateKey, to: dateKey };
+  }
+
+  return null;
+}
+
+function withInferredCalendarRange<T extends { dateRange?: unknown; timezone?: string }>(
+  userMessage: string,
+  input: T,
+) {
+  const inferredDateRange = inferDateRangeFromMessage(userMessage);
+
+  if (!inferredDateRange || input.dateRange) {
+    return input;
+  }
+
+  return {
+    ...input,
+    dateRange: inferredDateRange,
+    timezone: input.timezone ?? "Europe/Prague",
+  };
+}
+
+function getDefaultCalendarDateRange() {
+  const today = new Date();
+
+  return {
+    from: formatDateKey(today),
+    to: formatDateKey(addDays(today, 7)),
+  };
+}
+
+function getBusinessDataSource() {
+  const dataSource = getDataSourceEnvironment();
+
+  if (dataSource.DATA_SOURCE === "supabase") {
+    return {
+      label: "Supabase database",
+      detail: "Odpověď je sestavená z tabulek Supabase podle aktuálního dotazu.",
+      mode: "supabase" as const,
+    };
+  }
+
+  return {
+    label: "Lokální demo dataset",
+    detail:
+      "Odpověď je sestavená z ukázkových dat v src/lib/local-data/seed.ts, ne z reálného firemního systému.",
+    mode: "local_demo" as const,
+  };
+}
+
+const GOOGLE_CALENDAR_SOURCE = {
+  label: "Google Calendar",
+  detail:
+    "Doporučený termín vychází z připojeného Google Calendar účtu přes FreeBusy API. E-mail je připravený jako návrh v aplikaci.",
+  mode: "planned_integration" as const,
+};
+
+const LOCAL_REPORT_SOURCE = {
+  label: "Ukázkový týdenní report",
+  detail:
+    "Report a slidy jsou vytvořené z demo provozních dat. Produkčně by se skládaly z CRM, obchodních tabulek a interních poznámek.",
+  mode: "local_demo" as const,
+};
+
+const MARKET_WATCH_SOURCE = {
+  label: "Realitní servery",
+  detail:
+    "Výsledky jsou hledané přes Firecrawl Search na veřejných realitních serverech.",
+  mode: "planned_integration" as const,
+};
+
+async function createAgentPlan(
+  userMessage: string,
+  options?: { googleToken?: StoredGoogleToken | null },
+): Promise<AgentPlan> {
+  return AgentPlanSchema.parse(
+    await generateAgentPlan(userMessage, {
+      currentDate: new Date().toISOString().slice(0, 10),
+      googleCalendarConnected: Boolean(options?.googleToken),
+    }),
+  );
+}
+
+function describeArtifact(artifact: ChatResponse["artifact"]): string | undefined {
+  if (!artifact) return undefined;
+  if (artifact.type === "chart") {
+    return `Graf "${artifact.title}" bude zobrazen pod touto zprávou.`;
+  }
+  return `Tabulka "${artifact.title}" (sloupce: ${artifact.columns.join(", ")}) bude zobrazena pod touto zprávou.`;
+}
+
+async function withGeminiMessage(
+  userMessage: string,
+  plan: AgentPlan,
+  response: Omit<ChatResponse, "message">,
+  toolResult: unknown,
+): Promise<ChatResponse> {
+  const generated = await generateToolResponse({
+    userMessage,
+    plan,
+    toolResult,
+    artifactDescription: describeArtifact(response.artifact),
+    currentDate: new Date().toISOString().slice(0, 10),
+  });
+
+  return {
+    ...response,
+    message: generated.message,
+  };
+}
+
+export async function runAgent(
+  userMessage: string,
+  options?: { googleToken?: StoredGoogleToken | null },
+): Promise<ChatResponse> {
+  const plan = AgentPlanSchema.parse(await createAgentPlan(userMessage, options));
 
   if (plan.toolName === "query_lead_metrics") {
     const organizationId = getDefaultOrganizationId();
@@ -151,13 +193,13 @@ export async function runAgent(userMessage: string): Promise<ChatResponse> {
     const metrics = await queryLeadMetrics(organizationId, input);
     const total = metrics.reduce((sum, metric) => sum + metric.count, 0);
 
-    return {
+    return withGeminiMessage(
+      userMessage,
+      plan,
+      {
       intent: "analytics",
       requiresConfirmation: false,
-      message:
-        metrics.length > 0
-          ? `Našel jsem ${total} leadů v daném období. Níže je agregace podle zvoleného členění.`
-          : "V daném období jsem nenašel žádné leady.",
+      source: getBusinessDataSource(),
       artifact: {
         type: "chart",
         title: "Leady podle členění",
@@ -165,7 +207,9 @@ export async function runAgent(userMessage: string): Promise<ChatResponse> {
         yKey: "count",
         data: metrics,
       },
-    };
+      },
+      { input, total, metrics },
+    );
   }
 
   if (plan.toolName === "query_sales_metrics") {
@@ -178,10 +222,13 @@ export async function runAgent(userMessage: string): Promise<ChatResponse> {
       0,
     );
 
-    return {
+    return withGeminiMessage(
+      userMessage,
+      plan,
+      {
       intent: "analytics",
       requiresConfirmation: false,
-      message: `Za sledovane obdobi eviduji ${totalLeads} leadu a ${totalSales} prodane nemovitosti. Graf ukazuje vyvoj po mesicich.`,
+      source: getBusinessDataSource(),
       artifact: {
         type: "chart",
         title: "Vyvoj leadu a prodanych nemovitosti",
@@ -189,7 +236,9 @@ export async function runAgent(userMessage: string): Promise<ChatResponse> {
         yKeys: ["leads", "soldProperties"],
         data: metrics,
       },
-    };
+      },
+      { input, totalLeads, totalSales, metrics },
+    );
   }
 
   if (plan.toolName === "find_incomplete_properties") {
@@ -197,13 +246,13 @@ export async function runAgent(userMessage: string): Promise<ChatResponse> {
     const input = FindIncompletePropertiesInputSchema.parse(plan.toolInput);
     const properties = await findIncompleteProperties(organizationId, input);
 
-    return {
+    return withGeminiMessage(
+      userMessage,
+      plan,
+      {
       intent: "data_quality",
       requiresConfirmation: false,
-      message:
-        properties.length > 0
-          ? `Našel jsem ${properties.length} nemovitostí s chybějícími údaji.`
-          : "Nenašel jsem žádné nemovitosti s chybějícími údaji podle zadaných polí.",
+      source: getBusinessDataSource(),
       artifact: {
         type: "table",
         title: "Nemovitosti k doplnění",
@@ -214,17 +263,144 @@ export async function runAgent(userMessage: string): Promise<ChatResponse> {
           missingFields: property.missingFields.join(", "),
         })),
       },
-    };
+      },
+      { input, properties },
+    );
+  }
+
+  if (plan.toolName === "find_calendar_slots") {
+    const rawInput =
+      typeof plan.toolInput === "object" && plan.toolInput !== null
+        ? plan.toolInput
+        : {};
+    const input = FindCalendarSlotsInputSchema.parse({
+      dateRange: getDefaultCalendarDateRange(),
+      durationMinutes: 45,
+      timezone: "Europe/Prague",
+      ...withInferredCalendarRange(userMessage, rawInput),
+    });
+    const result = await findViewingSlots(input, {
+      googleToken: options?.googleToken,
+    });
+
+    if (result.source !== "google_calendar") {
+      return withGeminiMessage(
+        userMessage,
+        plan,
+        {
+        intent: "calendar",
+        requiresConfirmation: false,
+        source: {
+          label: "Google Calendar není připojený",
+          detail:
+            "Pro čtení reálné dostupnosti je potřeba nejdřív připojit Google účet. Bez něj agent nebude vydávat demo sloty za skutečný kalendář.",
+          mode: "planned_integration",
+        },
+        },
+        { input, connected: false, slots: [] },
+      );
+    }
+
+    return withGeminiMessage(
+      userMessage,
+      plan,
+      {
+      intent: "calendar",
+      requiresConfirmation: false,
+      source: GOOGLE_CALENDAR_SOURCE,
+      artifact: {
+        type: "table",
+        title: "Google Calendar dostupnost",
+        columns: ["type", "term", "startsAt", "endsAt"],
+        rows: [
+          ...result.busySlots.map((slot) => ({
+            type: "obsazeno",
+            term: slot.label,
+            startsAt: slot.startsAt,
+            endsAt: slot.endsAt,
+          })),
+          ...result.freeWindows.map((slot) => ({
+            type: "volno od-do",
+            term: `${slot.label} (${slot.durationMinutes} min)`,
+            startsAt: slot.startsAt,
+            endsAt: slot.endsAt,
+          })),
+          ...result.slots.map((slot) => ({
+            type: "volno",
+            term: slot.label,
+          startsAt: slot.startsAt,
+          endsAt: slot.endsAt,
+          })),
+        ],
+      },
+      },
+      {
+        input,
+        connected: true,
+        busySlots: result.busySlots,
+        freeWindows: result.freeWindows,
+        freeSlots: result.slots,
+      },
+    );
   }
 
   if (plan.toolName === "create_email_draft") {
-    const input = CreateEmailDraftInputSchema.parse(plan.toolInput);
-    const draft = createViewingEmailDraft(input);
+    if (!options?.googleToken) {
+      return withGeminiMessage(
+        userMessage,
+        plan,
+        {
+        intent: "email",
+        requiresConfirmation: false,
+        source: {
+          label: "Google Calendar není připojený",
+          detail:
+            "Agent nemůže doporučit termín podle skutečné dostupnosti bez připojeného Google účtu.",
+          mode: "planned_integration",
+        },
+        },
+        { connected: false, reason: "google_calendar_required" },
+      );
+    }
 
-    return {
+    const rawInput =
+      typeof plan.toolInput === "object" && plan.toolInput !== null
+        ? plan.toolInput
+        : {};
+    const input = CreateEmailDraftInputSchema.parse({
+      durationMinutes: 45,
+      timezone: "Europe/Prague",
+      ...withInferredCalendarRange(userMessage, rawInput),
+    });
+    const draft = await createViewingEmailDraft(input, {
+      googleToken: options?.googleToken,
+    });
+
+    if (!draft.recommendedSlot) {
+      return withGeminiMessage(
+        userMessage,
+        plan,
+        {
+          intent: "email",
+          requiresConfirmation: false,
+          source: GOOGLE_CALENDAR_SOURCE,
+        },
+        {
+          input,
+          draft,
+          connected: true,
+          reason: "no_available_google_calendar_slots",
+        },
+      );
+    }
+
+    return withGeminiMessage(
+      userMessage,
+      plan,
+      {
       intent: "email",
       requiresConfirmation: true,
-      message: `Doporuceny termin prohlidky je ${draft.recommendedSlot.label}. E-mail je pripraveny jako navrh a pred odeslanim vyzaduje potvrzeni.`,
+      source: GOOGLE_CALENDAR_SOURCE,
       artifact: {
         type: "table",
         title: "Navrh e-mailu",
@@ -235,51 +411,82 @@ export async function runAgent(userMessage: string): Promise<ChatResponse> {
           { field: "Text", value: draft.body },
         ],
       },
-    };
+      },
+      { input, draft },
+    );
   }
 
   if (plan.toolName === "create_weekly_report") {
     const input = CreateWeeklyReportInputSchema.parse(plan.toolInput);
     const report = createWeeklyReport(input);
 
-    return {
+    return withGeminiMessage(
+      userMessage,
+      plan,
+      {
       intent: "report",
       requiresConfirmation: false,
-      message: report.summary,
+      source: LOCAL_REPORT_SOURCE,
       artifact: {
         type: "table",
         title: "Prezentace pro vedeni - 3 slidy",
         columns: ["slide", "title", "content"],
         rows: report.slides,
       },
-    };
+      },
+      { input, report },
+    );
   }
 
   if (plan.toolName === "watch_market") {
     const input = WatchMarketInputSchema.parse(plan.toolInput);
-    const result = watchMarket(input);
+    const result = await searchMarketListings(input);
 
-    return {
+    const source = result.configured
+      ? MARKET_WATCH_SOURCE
+      : {
+          label: "Firecrawl není nastavený",
+          detail:
+            "Pro živé hledání na realitních serverech je potřeba nastavit FIRECRAWL_API_KEY.",
+          mode: "planned_integration" as const,
+        };
+
+    return withGeminiMessage(
+      userMessage,
+      plan,
+      {
       intent: "market_watch",
       requiresConfirmation: false,
-      message: `Monitoring je pripraveny pro frekvenci ${result.cadence}. V dnesnim rannim souhrnu jsou ${result.listings.length} nove nabidky.`,
+      source,
       artifact: {
         type: "table",
-        title: "Nove nabidky v lokalite",
-        columns: ["title", "price", "source", "url"],
+        title: "Výsledky z realitních serverů",
+        columns: ["title", "description", "source", "url"],
         rows: result.listings.map((listing) => ({
           title: listing.title,
-          price: listing.price,
+          description: listing.description,
           source: listing.source,
           url: listing.url,
         })),
       },
-    };
+      },
+      { input, result },
+    );
   }
 
-  return {
-    message: plan.message,
+  return withGeminiMessage(
+    userMessage,
+    plan,
+    {
     intent: plan.intent,
     requiresConfirmation: plan.requiresConfirmation,
-  };
+    source: {
+      label: "Agent plan",
+      detail:
+        "Odpověď vznikla plánováním agenta. Pro přesné provozní výstupy použijte jeden z připravených datových scénářů.",
+      mode: "planned_integration",
+    },
+    },
+    { plan },
+  );
 }

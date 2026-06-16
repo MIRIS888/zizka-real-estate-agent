@@ -15,6 +15,13 @@ export const ChatResponseSchema = z.object({
     "market_watch",
     "general",
   ]),
+  source: z
+    .object({
+      label: z.string().min(1),
+      detail: z.string().min(1),
+      mode: z.enum(["local_demo", "supabase", "planned_integration"]),
+    })
+    .optional(),
   requiresConfirmation: z.boolean(),
   artifact: z
     .discriminatedUnion("type", [

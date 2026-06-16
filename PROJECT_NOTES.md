@@ -8,6 +8,25 @@
 - Repo visibility: private.
 - Main branch: `main`, tracking `origin/main`.
 
+## Source Assignment To Follow
+
+Pepa pracuje jako back office manager ve firmě, která spravuje nemovitosti a obchoduje s nimi. Celý den se pohybuje mezi e-maily, kalendářem, tabulkami, dokumenty, interními poznámkami, meetingy a firemními systémy. Dává dohromady informace z různých míst, doplňuje chybějící data, připravuje podklady pro kolegy a vedení a zajišťuje, že se věci opravdu posunou dál. Cílem je navrhnout systém, který převezme významnou část Pepovy práce.
+
+Task: navrhnout a postavit Back Office Operations Agenta pro firmu, která spravuje nemovitosti a obchoduje s nimi. Agent musí umět pracovat jak s dotazy nad daty, která mohou být odněkud stažená nebo vygenerovaná, tak s workflow a plánovanými úkoly.
+
+Allowed solution choices include OpenClaw, n8n, a custom solution created through Claude Code, a combination of multiple approaches, or another pragmatic approach.
+
+Required capabilities:
+
+- When asked `Jaké nové klienty máme za 1. kvartál? Odkud přišli? Můžeš to znázornit graficky?`, the agent must return a precise answer over real company-style data.
+- When asked `Vytvoř graf vývoje počtu leadů a prodaných nemovitostí za posledních 6 měsíců.`, the agent must return a link, table, document, or visual output.
+- When asked `Napiš e-mail pro zájemce o moji nemovitost a doporuč mu termín prohlídky na základě mé dostupnosti v kalendáři.`, the agent must use calendar availability and prepare an email draft.
+- When asked `Najdi nemovitosti, u kterých nám v systému chybí data o rekonstrukci a stavebních úpravách a připrav jejich seznam k doplnění.`, the agent must return an overview and recommend the next step.
+- When asked `Shrň výsledky minulého týdne do krátkého reportu pro vedení a připrav k tomu prezentaci se třemi slidy.`, the agent must create an appropriately formatted output.
+- When asked `Sleduj všechny hlavní realitní servery a každé ráno mě informuj o nových nabídkách v lokalitě Praha Holešovice.`, the agent must support the recurring scheduled workflow.
+
+This assignment is the north star for product, architecture, demo script, and deployment decisions.
+
 ## What The Demo Currently Does
 
 - Next.js UI with dashboard and AI chat.
