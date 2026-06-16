@@ -125,7 +125,7 @@ const GOOGLE_CALENDAR_SOURCE = {
   label: "Google Calendar",
   detail:
     "Doporučený termín vychází z připojeného Google Calendar účtu přes FreeBusy API. E-mail je připravený jako návrh v aplikaci.",
-  mode: "planned_integration" as const,
+  mode: "live" as const,
 };
 
 const LOCAL_REPORT_SOURCE = {
@@ -367,12 +367,21 @@ export async function runAgent(
 
     const rawInput =
       typeof plan.toolInput === "object" && plan.toolInput !== null
-        ? plan.toolInput
+        ? (plan.toolInput as Record<string, unknown>)
         : {};
+
+    // Fallback: if planner missed the email address, extract it from the user's message
+    const planEmail =
+      typeof rawInput.recipientEmail === "string" ? rawInput.recipientEmail : undefined;
+    const emailFromMessage =
+      userMessage.match(/\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/)?.[0];
+    const recipientEmail = planEmail ?? emailFromMessage;
+
     const input = CreateEmailDraftInputSchema.parse({
       durationMinutes: 45,
       timezone: "Europe/Prague",
       ...withInferredCalendarRange(userMessage, rawInput),
+      ...(recipientEmail ? { recipientEmail } : {}),
     });
     const draft = await createViewingEmailDraft(input, {
       googleToken: options?.googleToken,
@@ -452,7 +461,7 @@ export async function runAgent(
         source: {
           label: "Gmail",
           detail: `E-mail byl odeslán na ${input.to} přes Gmail API.`,
-          mode: "planned_integration",
+          mode: "live",
         },
       },
       { sent: true, messageId: result.messageId, to: input.to, subject: input.subject },

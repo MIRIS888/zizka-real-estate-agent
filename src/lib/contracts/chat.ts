@@ -27,7 +27,7 @@ export const ChatResponseSchema = z.object({
     .object({
       label: z.string().min(1),
       detail: z.string().min(1),
-      mode: z.enum(["local_demo", "supabase", "planned_integration"]),
+      mode: z.enum(["local_demo", "supabase", "planned_integration", "live"]),
     })
     .optional(),
   requiresConfirmation: z.boolean(),

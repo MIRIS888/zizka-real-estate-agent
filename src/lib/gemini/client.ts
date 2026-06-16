@@ -17,8 +17,8 @@ Allowed tools:
   {"dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}}
 - find_incomplete_properties: Use for missing real estate data. Input shape:
   {"fields":["reconstruction_year","building_modifications","energy_rating","floor_area"]}
-- create_email_draft: Use for drafting an email to an interested buyer and recommending a viewing slot. Input shape:
-  {"recipientEmail":"optional@email.cz","propertyTitle":"string","tone":"formal|friendly","dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"durationMinutes":45,"timezone":"Europe/Prague"}
+- create_email_draft: Use for drafting an email and recommending a viewing slot. If the user mentions a recipient email address anywhere in their message, always include it as recipientEmail. Input shape:
+  {"recipientEmail":"email@adresa.cz","propertyTitle":"string","tone":"formal|friendly","dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"durationMinutes":45,"timezone":"Europe/Prague"}
 - send_email: Use when the user confirms sending or explicitly asks to send an email that was already drafted in this conversation. Extract to/subject/body from the conversation history. Input shape:
   {"to":"email@address.cz","subject":"string","body":"string"}
 - find_calendar_slots: Use for checking available calendar/viewing slots without drafting an email. Input shape:

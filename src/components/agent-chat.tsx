@@ -81,6 +81,7 @@ const SOURCE_LABELS: Record<ResponseSource["mode"], string> = {
   local_demo: "Demo data",
   supabase: "Databáze",
   planned_integration: "Integrace",
+  live: "Odesláno",
 };
 
 const QUICK_PROMPTS: QuickPrompt[] = [
