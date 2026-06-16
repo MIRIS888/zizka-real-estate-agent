@@ -49,25 +49,53 @@ function LoginContent() {
 
   return (
     <div className="flex h-full bg-[var(--bg)]">
-      {/* Left panel — branding */}
-      <div className="hidden flex-col justify-between bg-[var(--primary)] p-10 lg:flex lg:w-[420px] lg:shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="grid size-8 place-items-center rounded-lg bg-white/10">
-            <Building2 className="size-4 text-white" />
+      {/* Left panel — branding, always dark forest green regardless of theme */}
+      <div
+        className="relative hidden flex-col justify-between p-10 lg:flex lg:w-[380px] lg:shrink-0"
+        style={{
+          background: "linear-gradient(160deg, #0E2218 0%, #132B1E 60%, #0A1A12 100%)",
+          borderRight: "1px solid rgba(255,255,255,0.05)",
+        }}
+      >
+        {/* Subtle grid pattern overlay */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 lg:w-[380px]"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle, rgba(74,186,127,0.07) 1px, transparent 1px)",
+            backgroundSize: "28px 28px",
+          }}
+        />
+
+        <div className="relative flex items-center gap-2.5">
+          <div
+            className="grid size-8 place-items-center rounded-lg"
+            style={{ background: "rgba(74,186,127,0.15)", border: "1px solid rgba(74,186,127,0.25)" }}
+          >
+            <Building2 className="size-4" style={{ color: "#4ABA7F" }} />
           </div>
-          <span className="text-sm font-semibold text-white">Žižka Reality</span>
+          <span className="text-sm font-semibold text-white/80">Žižka Reality</span>
         </div>
 
-        <div>
-          <p className="text-2xl font-semibold leading-snug text-white">
-            Back Office Agent
+        <div className="relative">
+          <p
+            className="text-[11px] font-semibold uppercase tracking-[0.15em] mb-3"
+            style={{ color: "rgba(74,186,127,0.6)" }}
+          >
+            Back Office
           </p>
-          <p className="mt-3 text-sm leading-6 text-white/60">
-            Interní systém pro správu nemovitostí, leadů a komunikace se zájemci.
+          <p className="text-[1.6rem] font-semibold leading-tight text-white/90">
+            Správa nemovitostí<br />v jednom místě
+          </p>
+          <p className="mt-4 text-sm leading-6" style={{ color: "rgba(255,255,255,0.38)" }}>
+            Leady, nemovitosti a komunikace<br />se zájemci — vše přehledně.
           </p>
         </div>
 
-        <p className="text-xs text-white/30">© 2025 Žižka Reality</p>
+        <p className="relative text-xs" style={{ color: "rgba(255,255,255,0.2)" }}>
+          © 2025 Žižka Reality
+        </p>
       </div>
 
       {/* Right panel — login form */}
@@ -89,13 +117,13 @@ function LoginContent() {
 
         {/* Form */}
         <div className="flex flex-1 flex-col items-center justify-center px-6">
-          <div className="w-full max-w-[360px]">
+          <div className="w-full max-w-[340px]">
             <div className="mb-8">
-              <h1 className="text-2xl font-semibold text-[var(--foreground)]">
+              <h1 className="text-[1.4rem] font-semibold text-[var(--foreground)]">
                 Přihlásit se
               </h1>
               <p className="mt-1.5 text-sm text-[var(--foreground-muted)]">
-                Přihlášení je dostupné pouze pro oprávněné uživatele.
+                Přístup pouze pro oprávněné uživatele.
               </p>
             </div>
 
