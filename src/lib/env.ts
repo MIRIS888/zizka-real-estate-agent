@@ -22,7 +22,6 @@ const N8nEnvironmentSchema = z.object({
 const GoogleOAuthEnvironmentSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
-  GOOGLE_REDIRECT_URI: z.url(),
 });
 
 const FirecrawlEnvironmentSchema = z.object({
@@ -91,12 +90,11 @@ export function getGoogleOAuthEnvironment() {
   const parsedEnvironment = GoogleOAuthEnvironmentSchema.safeParse({
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-    GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
   });
 
   if (!parsedEnvironment.success) {
     throw new Error(
-      "Google OAuth is not configured. Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI to .env.local.",
+      "Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to environment variables.",
     );
   }
 
@@ -107,7 +105,6 @@ export function isGoogleOAuthConfigured() {
   return GoogleOAuthEnvironmentSchema.safeParse({
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-    GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
   }).success;
 }
 
