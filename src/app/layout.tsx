@@ -20,7 +20,15 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="cs" suppressHydrationWarning className={sans.variable}>
-      <body>{children}</body>
+      <head>
+        {/* Prevent flash of wrong theme */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var t=localStorage.getItem('theme'),d=window.matchMedia('(prefers-color-scheme:dark)').matches;if(t==='dark'||(t==null&&d))document.documentElement.classList.add('dark');})();`,
+          }}
+        />
+      </head>
+      <body className="h-full">{children}</body>
     </html>
   );
 }

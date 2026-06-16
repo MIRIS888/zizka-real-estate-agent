@@ -1,26 +1,54 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #F2F1ED;
+  --bg: #F5F4F0;
   --surface: #FFFFFF;
-  --surface-muted: #EFEDE7;
+  --surface-muted: #EEECEA;
+  --sidebar: #E9E7E3;
   --primary: #1D4D38;
-  --primary-light: #EBF3EE;
   --primary-strong: #133328;
   --accent: #B8893B;
-  --accent-light: #FBF5EB;
-  --foreground: #141B18;
-  --foreground-muted: #5E6762;
-  --border: #DDD9D0;
-  --border-strong: #C5C1B8;
+  --accent-bg: #FBF5EB;
+  --foreground: #0D1210;
+  --foreground-muted: #6B7280;
+  --border: #E2E0DA;
+  --border-strong: #C8C4BC;
+  --warning-bg: #FFFBEB;
+  --warning-text: #92400E;
+  --error-bg: #FEF2F2;
+  --error-text: #DC2626;
+}
+
+.dark {
+  --bg: #0F0F0E;
+  --surface: #1A1A18;
+  --surface-muted: #222220;
+  --sidebar: #131311;
+  --primary: #4ABA7F;
+  --primary-strong: #3DAB78;
+  --accent: #C99B4E;
+  --accent-bg: #2A1F08;
+  --foreground: #EDEDEB;
+  --foreground-muted: #8A8A87;
+  --border: #2C2C2A;
+  --border-strong: #3C3C3A;
+  --warning-bg: #1C1500;
+  --warning-text: #FCD34D;
+  --error-bg: #1C0A0A;
+  --error-text: #F87171;
 }
 
 * {
   border-color: var(--border);
 }
 
+html,
 body {
-  min-height: 100vh;
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
   background: var(--bg);
   color: var(--foreground);
   font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
