@@ -14,6 +14,7 @@ import {
   findGoogleCalendarAvailability,
   type StoredGoogleToken,
 } from "@/lib/google/oauth";
+import { generateEmailDraft } from "@/lib/gemini/client";
 
 type MonthlyPerformance = {
   month: string;
@@ -108,25 +109,18 @@ export async function createViewingEmailDraft(
   }
 
   const recommendedSlot = calendarSlots[0];
-  const greeting =
-    input.tone === "friendly" ? "Dobry den," : "Dobry den, vazeny zajemce,";
+  const draft = await generateEmailDraft({
+    propertyTitle,
+    tone: input.tone ?? "formal",
+    recommendedSlot: recommendedSlot.label,
+    alternativeSlots: calendarSlots.slice(1).map((slot) => slot.label),
+    recipientEmail: input.recipientEmail,
+  });
 
   return {
     recommendedSlot,
-    subject: `Prohlidka nemovitosti: ${propertyTitle}`,
-    body: `${greeting}
-
-dekujeme za zajem o ${propertyTitle}. Podle aktualni dostupnosti navrhuji prohlidku v terminu ${recommendedSlot.label}.
-
-Pokud se Vam termin nehodi, mohu nabidnout jeste ${calendarSlots
-      .slice(1)
-      .map((slot) => slot.label)
-      .join(" nebo ")}.
-
-Prosim o potvrzeni, ktery termin Vam vyhovuje.
-
-S pozdravem
-Back office tym`,
+    subject: draft.subject,
+    body: draft.body,
     recipientEmail: input.recipientEmail ?? "zajemce@example.com",
     source: "google_calendar",
     alternatives: calendarSlots.slice(1),

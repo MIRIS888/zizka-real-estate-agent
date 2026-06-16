@@ -79,6 +79,32 @@ const ToolResponseSchema = z.object({
   message: z.string().min(1),
 });
 
+const EmailDraftSchema = z.object({
+  subject: z.string().min(1),
+  body: z.string().min(1),
+});
+
+const EMAIL_DRAFT_INSTRUCTION = `
+You are Pepa, a back-office manager at Žižka Reality, a Czech real estate company.
+Write a viewing invitation email in Czech to a potential property buyer.
+
+Rules:
+- Use correct Czech with diacritics: á, é, í, ó, ú, ů, č, š, ž, ř, ď, ť, ň.
+- Tone "formal": polished business Czech, capitalize Vám/Vás/Váš, maintain professional distance.
+- Tone "friendly": warm and approachable but still professional, use vám/vás lowercase.
+- Mention the recommended slot clearly and early. Weave in alternatives naturally near the end.
+- Sign off as "Pepa / Žižka Reality".
+- Subject: concise, include the property name and mention prohlídka.
+- Body: 3–4 short paragraphs. Direct and useful — no hollow filler.
+- Do NOT use placeholder text like "[jméno]" — use the real values provided.
+
+Return only valid JSON:
+{
+  "subject": "string",
+  "body": "string"
+}
+`;
+
 function extractJson(text: string): unknown {
   const normalizedText = text
     .trim()
@@ -153,4 +179,31 @@ export async function generateToolResponse(input: {
   }
 
   return ToolResponseSchema.parse(extractJson(response.text));
+}
+
+export async function generateEmailDraft(input: {
+  propertyTitle: string;
+  tone: "formal" | "friendly";
+  recommendedSlot: string;
+  alternativeSlots: string[];
+  recipientEmail?: string;
+}): Promise<{ subject: string; body: string }> {
+  const environment = getGeminiEnvironment();
+  const client = new GoogleGenAI({ apiKey: environment.GEMINI_API_KEY });
+
+  const response = await client.models.generateContent({
+    model: environment.GEMINI_MODEL,
+    contents: JSON.stringify(input),
+    config: {
+      systemInstruction: EMAIL_DRAFT_INSTRUCTION,
+      responseMimeType: "application/json",
+      temperature: 0.5,
+    },
+  });
+
+  if (!response.text) {
+    throw new Error("Gemini returned an empty email draft.");
+  }
+
+  return EmailDraftSchema.parse(extractJson(response.text));
 }
