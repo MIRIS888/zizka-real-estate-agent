@@ -33,16 +33,17 @@ export async function middleware(request: NextRequest) {
   const isPublicPath =
     pathname.startsWith("/login") || pathname.startsWith("/auth/");
 
+  // On Vercel, request.nextUrl contains the internal localhost URL.
+  // Use NEXT_PUBLIC_SITE_URL when available so redirects go to the public domain.
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+    ?? `${request.nextUrl.protocol}//${request.nextUrl.host}`;
+
   if (!user && !isPublicPath) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL("/login", siteUrl));
   }
 
   if (user && pathname === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL("/", siteUrl));
   }
 
   return supabaseResponse;
