@@ -33,6 +33,7 @@ export async function middleware(request: NextRequest) {
   const isPublicPath =
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth/") ||
+    pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/api/webhooks/n8n/") ||
     pathname.startsWith("/api/internal/n8n/");
 
