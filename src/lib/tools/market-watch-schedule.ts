@@ -190,16 +190,12 @@ function getCurrentIsoWeekday(timezone: string): number {
 
 function ruleMatchesNow(rule: {
   schedule_days: number[] | null;
-  schedule_time: string | null;
   timezone: string | null;
 }): boolean {
   const timezone = rule.timezone ?? "Europe/Prague";
-  const scheduleTime = rule.schedule_time ?? "08:00";
-  const scheduledHour = Number(scheduleTime.split(":")[0]);
-  const currentHour = getCurrentHourInTimezone(timezone);
   const currentWeekday = getCurrentIsoWeekday(timezone);
   const days = rule.schedule_days ?? [1, 2, 3, 4, 5, 6, 7];
-  return currentHour === scheduledHour && days.includes(currentWeekday);
+  return days.includes(currentWeekday);
 }
 
 const ActiveRuleRowSchema = z.object({
