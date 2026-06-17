@@ -15,12 +15,8 @@ const DataSourceEnvironmentSchema = z.object({
   DATA_SOURCE: z.enum(["local", "supabase"]).default("local"),
 });
 
-const N8nEnvironmentSchema = z.object({
-  N8N_WEBHOOK_SECRET: z.string().min(24),
-});
-
-const N8nDailyReportEnvironmentSchema = N8nEnvironmentSchema.extend({
-  N8N_DAILY_REPORT_WEBHOOK_URL: z.url(),
+const CronEnvironmentSchema = z.object({
+  CRON_SECRET: z.string().min(16),
 });
 
 const GoogleOAuthEnvironmentSchema = z.object({
@@ -76,40 +72,9 @@ export function getDataSourceEnvironment() {
   return parsedEnvironment.data;
 }
 
-export function getN8nEnvironment() {
-  const parsedEnvironment = N8nEnvironmentSchema.safeParse({
-    N8N_WEBHOOK_SECRET: process.env.N8N_WEBHOOK_SECRET,
-  });
-
-  if (!parsedEnvironment.success) {
-    throw new Error(
-      "n8n webhook secret is not configured. Add N8N_WEBHOOK_SECRET to .env.local.",
-    );
-  }
-
-  return parsedEnvironment.data;
-}
-
-export function getN8nDailyReportEnvironment() {
-  const parsedEnvironment = N8nDailyReportEnvironmentSchema.safeParse({
-    N8N_WEBHOOK_SECRET: process.env.N8N_WEBHOOK_SECRET,
-    N8N_DAILY_REPORT_WEBHOOK_URL: process.env.N8N_DAILY_REPORT_WEBHOOK_URL,
-  });
-
-  if (!parsedEnvironment.success) {
-    throw new Error(
-      "n8n daily report trigger is not configured. Add N8N_DAILY_REPORT_WEBHOOK_URL and N8N_WEBHOOK_SECRET to .env.local.",
-    );
-  }
-
-  return parsedEnvironment.data;
-}
-
-export function isN8nDailyReportConfigured() {
-  return N8nDailyReportEnvironmentSchema.safeParse({
-    N8N_WEBHOOK_SECRET: process.env.N8N_WEBHOOK_SECRET,
-    N8N_DAILY_REPORT_WEBHOOK_URL: process.env.N8N_DAILY_REPORT_WEBHOOK_URL,
-  }).success;
+export function getCronSecret(): string | undefined {
+  const parsed = CronEnvironmentSchema.safeParse({ CRON_SECRET: process.env.CRON_SECRET });
+  return parsed.success ? parsed.data.CRON_SECRET : undefined;
 }
 
 export function getGoogleOAuthEnvironment() {

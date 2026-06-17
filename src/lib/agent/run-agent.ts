@@ -7,7 +7,7 @@ import {
   FindIncompletePropertiesInputSchema,
   QueryLeadMetricsInputSchema,
   QuerySalesMetricsInputSchema,
-  RunDailyReportInputSchema,
+  SendMorningReportInputSchema,
   SendEmailInputSchema,
   WatchMarketInputSchema,
   type AgentPlan,
@@ -24,7 +24,7 @@ import {
 import { queryLeadMetrics } from "@/lib/tools/lead-metrics";
 import { searchMarketListings } from "@/lib/tools/market-search";
 import { upsertMarketWatchRule } from "@/lib/tools/market-watch-schedule";
-import { runN8nDailyReport } from "@/lib/tools/n8n-daily-report";
+import { buildMorningReport } from "@/lib/tools/morning-report";
 import { findIncompleteProperties } from "@/lib/tools/property-quality";
 import { sendGmailMessage, type StoredGoogleToken } from "@/lib/google/oauth";
 
@@ -138,10 +138,9 @@ const LOCAL_REPORT_SOURCE = {
   mode: "local_demo" as const,
 };
 
-const N8N_DAILY_REPORT_SOURCE = {
-  label: "n8n denní report",
-  detail:
-    "Report je spuštěný přes n8n workflow, které report sestaví, odešle e-mailem a uloží do aplikace přes daily-report webhook.",
+const MORNING_REPORT_SOURCE = {
+  label: "Ranní report",
+  detail: "Report je sestavený z interních dat a realitních serverů a odeslán přes Gmail API.",
   mode: "live" as const,
 };
 
@@ -502,16 +501,13 @@ export async function runAgent(
     );
   }
 
-  if (plan.toolName === "run_daily_report") {
-    const input = RunDailyReportInputSchema.parse({
-      ...(typeof plan.toolInput === "object" && plan.toolInput !== null
-        ? plan.toolInput
-        : {}),
-      ...(options?.userEmail ? { recipientEmail: options.userEmail } : {}),
-    });
-    const result = await runN8nDailyReport(input);
+  if (plan.toolName === "send_morning_report") {
+    const rawInput =
+      typeof plan.toolInput === "object" && plan.toolInput !== null ? plan.toolInput : {};
+    const input = SendMorningReportInputSchema.parse(rawInput);
+    const recipientEmail = input.recipientEmail ?? options?.userEmail;
 
-    if (!result.configured || !result.report) {
+    if (!options?.googleToken) {
       return withGeminiMessage(
         userMessage,
         plan,
@@ -519,15 +515,35 @@ export async function runAgent(
           intent: "report",
           requiresConfirmation: false,
           source: {
-            label: "n8n není připojené k chatu",
-            detail:
-              "Pro spuštění denního reportu z chatu je potřeba nastavit N8N_DAILY_REPORT_WEBHOOK_URL a N8N_WEBHOOK_SECRET.",
+            label: "Google účet není připojený",
+            detail: "Pro odesílání ranního reportu emailem je potřeba připojit Google účet.",
             mode: "planned_integration",
           },
         },
-        result,
+        { sent: false, reason: "google_not_connected" },
       );
     }
+
+    if (!recipientEmail) {
+      return withGeminiMessage(
+        userMessage,
+        plan,
+        {
+          intent: "report",
+          requiresConfirmation: false,
+          source: MORNING_REPORT_SOURCE,
+        },
+        { sent: false, reason: "no_recipient_email" },
+      );
+    }
+
+    const report = await buildMorningReport();
+    const { messageId } = await sendGmailMessage(options.googleToken, {
+      to: recipientEmail,
+      subject: report.subject,
+      body: report.text,
+      html: report.html,
+    });
 
     return withGeminiMessage(
       userMessage,
@@ -535,33 +551,21 @@ export async function runAgent(
       {
         intent: "report",
         requiresConfirmation: false,
-        source: N8N_DAILY_REPORT_SOURCE,
+        source: MORNING_REPORT_SOURCE,
         artifact: {
           type: "table",
-          title: "Denní provozní report",
-          columns: ["metric", "value"],
+          title: "Ranní report — přehled",
+          columns: ["položka", "hodnota"],
           rows: [
-            { metric: "Nové leady", value: result.report.metrics.newLeads },
-            {
-              metric: "Naplánované prohlídky",
-              value: result.report.metrics.scheduledViewings,
-            },
-            {
-              metric: "Prodané nemovitosti",
-              value: result.report.metrics.soldProperties,
-            },
-            {
-              metric: "Nemovitosti k doplnění",
-              value: result.report.metrics.incompleteProperties,
-            },
-            {
-              metric: "Nové tržní nabídky",
-              value: result.report.metrics.newMarketListings,
-            },
+            { položka: "Příjemce", hodnota: recipientEmail },
+            { položka: "Nových leadů (7 dní)", hodnota: String(report.totalLeads) },
+            { položka: "Nemovitostí k doplnění", hodnota: String(report.incompleteCount) },
+            { položka: "Nabídek v Praze", hodnota: String(report.listingCount) },
+            { položka: "Gmail Message ID", hodnota: messageId },
           ],
         },
       },
-      { input, result },
+      { sent: true, to: recipientEmail, subject: report.subject, messageId },
     );
   }
 

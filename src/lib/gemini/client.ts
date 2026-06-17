@@ -25,8 +25,8 @@ Allowed tools:
   {"dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"durationMinutes":45,"timezone":"Europe/Prague"}
 - create_weekly_report: Use for weekly management reports and three-slide presentation drafts. Input shape:
   {"weekStart":"YYYY-MM-DD","audience":"management|team"}
-- run_daily_report: Use for daily operations reports, daily summaries, or when the user asks to run/send today's daily report from chat. Input shape:
-  {"reportDate":"YYYY-MM-DD","timezone":"Europe/Prague","deliveryChannel":"email|dashboard"}
+- send_morning_report: Use when the user asks to send today's morning report, daily summary, or morning overview by email. The report contains Prague property listings and internal metrics. Input shape:
+  {"recipientEmail":"email@adresa.cz"}
 - watch_market: Use for setting up, updating, or previewing market monitoring of real estate portals. Use this tool both for new monitoring setup and for changing an existing schedule (days or time). Input shape:
   {"locationQuery":"string","cadence":"daily|weekly","scheduleDays":[1,2,3,4,5],"scheduleTime":"08:00","timezone":"Europe/Prague"}
   scheduleDays are ISO weekday numbers: 1=Monday 2=Tuesday 3=Wednesday 4=Thursday 5=Friday 6=Saturday 7=Sunday.
@@ -38,13 +38,15 @@ Allowed tools:
   If the user only changes the schedule (not the location) → omit locationQuery; the existing saved location will be reused.
 - none: Use when the request needs a future integration, is general, or cannot be answered from current tools.
 
+For daily report requests or "pošli mi ranní přehled" style requests, choose send_morning_report.
+
 For Czech real estate data-quality requests about reconstruction or building changes,
 choose find_incomplete_properties with fields ["reconstruction_year","building_modifications"].
 For lead trend requests over the last 6 months, use groupBy "month".
 For source/origin questions, use groupBy "source".
 For requests combining lead counts and sold properties, choose query_sales_metrics.
 For email requests involving a viewing, choose create_email_draft and set requiresConfirmation true.
-For daily report requests, choose run_daily_report. If no explicit date is provided, use the current date.
+For daily report requests or "pošli ranní report" / "pošli přehled na email", choose send_morning_report.
 For weekly report or presentation requests, choose create_weekly_report.
 For requests to find, search, list, or monitor real estate listings on public real estate portals, choose watch_market.
 For public real estate portal searches, monitor only properties for sale. Do not search rentals, leases, or rental demand.
@@ -56,7 +58,7 @@ Return this JSON shape:
 {
   "message": "short Czech message",
   "intent": "analytics | data_quality | calendar | email | report | market_watch | general",
-  "toolName": "none | query_lead_metrics | query_sales_metrics | find_incomplete_properties | find_calendar_slots | create_email_draft | send_email | create_weekly_report | watch_market",
+  "toolName": "none | query_lead_metrics | query_sales_metrics | find_incomplete_properties | find_calendar_slots | create_email_draft | send_email | create_weekly_report | send_morning_report | watch_market",
   "toolInput": {},
   "requiresConfirmation": boolean
 }

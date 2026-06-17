@@ -55,13 +55,16 @@ type GoogleTokenStore = {
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
 const GOOGLE_FREEBUSY_URL = "https://www.googleapis.com/calendar/v3/freeBusy";
 const GOOGLE_CALENDAR_LIST_URL =
   "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const SCOPES = [
+  "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/calendar.freebusy",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/gmail.compose",
+  "https://www.googleapis.com/auth/gmail.send",
 ];
 export const GOOGLE_TOKEN_COOKIE = "zizka_google_token";
 
@@ -484,22 +487,59 @@ export async function findGoogleCalendarAvailability(
 
 const GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 
+export async function fetchGoogleUserEmail(accessToken: string): Promise<string | null> {
+  const response = await fetch(GOOGLE_USERINFO_URL, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) return null;
+
+  const payload = (await response.json()) as { email?: string };
+  return payload.email ?? null;
+}
+
 export async function sendGmailMessage(
   token: StoredGoogleToken,
-  options: { to: string; subject: string; body: string },
+  options: { to: string; subject: string; body: string; html?: string },
 ): Promise<{ messageId: string }> {
   const accessToken = await refreshAccessToken(token);
-
   const subjectEncoded = `=?UTF-8?B?${Buffer.from(options.subject, "utf8").toString("base64")}?=`;
-  const bodyEncoded = Buffer.from(options.body, "utf8").toString("base64");
-  const rawMessage = [
-    `To: ${options.to}`,
-    `Subject: ${subjectEncoded}`,
-    `Content-Type: text/plain; charset=UTF-8`,
-    `Content-Transfer-Encoding: base64`,
-    ``,
-    bodyEncoded,
-  ].join("\r\n");
+
+  let rawMessage: string;
+
+  if (options.html) {
+    const boundary = "zizka_mime_v1";
+    const textEncoded = Buffer.from(options.body, "utf8").toString("base64");
+    const htmlEncoded = Buffer.from(options.html, "utf8").toString("base64");
+    rawMessage = [
+      `To: ${options.to}`,
+      `Subject: ${subjectEncoded}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      textEncoded,
+      `--${boundary}`,
+      `Content-Type: text/html; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      htmlEncoded,
+      `--${boundary}--`,
+    ].join("\r\n");
+  } else {
+    const bodyEncoded = Buffer.from(options.body, "utf8").toString("base64");
+    rawMessage = [
+      `To: ${options.to}`,
+      `Subject: ${subjectEncoded}`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      bodyEncoded,
+    ].join("\r\n");
+  }
 
   const response = await fetch(GMAIL_SEND_URL, {
     method: "POST",

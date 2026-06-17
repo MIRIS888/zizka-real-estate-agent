@@ -3,8 +3,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   exchangeGoogleCode,
   encodeGoogleToken,
+  fetchGoogleUserEmail,
   GOOGLE_TOKEN_COOKIE,
 } from "@/lib/google/oauth";
+import { saveGoogleAccount } from "@/lib/google/token-store";
 
 function getPublicOrigin(request: NextRequest): string {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
@@ -31,6 +33,14 @@ export async function GET(request: NextRequest) {
   try {
     const redirectUri = `${origin}/api/auth/google/callback`;
     const token = await exchangeGoogleCode(code, redirectUri);
+    const email = await fetchGoogleUserEmail(token.accessToken);
+
+    if (email) {
+      await saveGoogleAccount(email, token).catch(() => {
+        // Non-fatal: cron won't have a stored token but chat still works via cookie
+      });
+    }
+
     const response = NextResponse.redirect(`${origin}/`);
     response.cookies.set(GOOGLE_TOKEN_COOKIE, encodeGoogleToken(token), {
       httpOnly: true,

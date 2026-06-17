@@ -58,10 +58,7 @@ export const WatchMarketInputSchema = z.object({
   timezone: z.string().min(1).default("Europe/Prague"),
 });
 
-export const RunDailyReportInputSchema = z.object({
-  reportDate: z.string().date().optional(),
-  timezone: z.string().min(1).default("Europe/Prague"),
-  deliveryChannel: z.enum(["email", "dashboard"]).default("email"),
+export const SendMorningReportInputSchema = z.object({
   recipientEmail: z.email().optional(),
 });
 
@@ -80,7 +77,7 @@ export const AgentToolNameSchema = z.enum([
   "create_email_draft",
   "send_email",
   "create_weekly_report",
-  "run_daily_report",
+  "send_morning_report",
   "watch_market",
 ]);
 
@@ -102,3 +99,4 @@ export const AgentPlanSchema = z.object({
 
 export type AgentToolName = z.infer<typeof AgentToolNameSchema>;
 export type AgentPlan = z.infer<typeof AgentPlanSchema>;
+export type SendMorningReportInput = z.infer<typeof SendMorningReportInputSchema>;
