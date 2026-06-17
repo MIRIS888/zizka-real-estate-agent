@@ -1,103 +1,364 @@
-import { GoogleGenAI } from "@google/genai";
+import {
+  FunctionCallingConfigMode,
+  GoogleGenAI,
+  Type,
+  type Content,
+  type FunctionCall,
+  type FunctionDeclaration,
+} from "@google/genai";
 import { z } from "zod";
 
-import { AgentPlanSchema, type AgentPlan } from "@/lib/contracts/tools";
-import { type ChatHistoryItem } from "@/lib/contracts/chat";
 import { getGeminiEnvironment } from "@/lib/env";
 
+export const CONVERSATIONAL_SYSTEM_INSTRUCTION = `
+Jsi back-office asistent pro českou realitní kancelář Žižka Reality.
+Mluvíš přirozeně, jasně a věcně jako schopný kolega.
 
-const PLANNER_INSTRUCTION = `
-You are a Czech-speaking real estate back-office planner.
-Return only valid JSON. Select exactly one tool from the allowed list.
+Když k odpovědi potřebuješ interní data, aktuální nabídky, kalendář, report nebo akci v systému, zavolej příslušnou funkci.
+Když funkci nepotřebuješ, odpověz rovnou textem.
 
-Allowed tools:
-- query_lead_metrics: Use for lead counts, lead trends, new clients/leads, and analytics. Input shape:
-  {"dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"groupBy":"month|source|status"}
-- query_sales_metrics: Use for combined lead and sold-property trends. Input shape:
-  {"dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"}}
-- find_incomplete_properties: Use for missing real estate data. Input shape:
-  {"fields":["reconstruction_year","building_modifications","energy_rating","floor_area"]}
-- create_email_draft: Use for drafting an email and recommending a viewing slot. If the user mentions a recipient email address anywhere in their message, always include it as recipientEmail. Input shape:
-  {"recipientEmail":"email@adresa.cz","propertyTitle":"string","tone":"formal|friendly","dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"durationMinutes":45,"timezone":"Europe/Prague"}
-- send_email: Use when the user confirms sending or explicitly asks to send an email that was already drafted in this conversation. Extract to/subject/body from the conversation history. Input shape:
-  {"to":"email@address.cz","subject":"string","body":"string"}
-- find_calendar_slots: Use for checking available calendar/viewing slots without drafting an email. Input shape:
-  {"dateRange":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"durationMinutes":45,"timezone":"Europe/Prague"}
-- create_weekly_report: Use for weekly management reports and three-slide presentation drafts. Input shape:
-  {"weekStart":"YYYY-MM-DD","audience":"management|team"}
-- send_morning_report: Use when the user asks to send today's morning report, daily summary, or morning overview by email. The report contains Prague property listings and internal metrics. Input shape:
-  {"recipientEmail":"email@adresa.cz"}
-- watch_market: Use for setting up, updating, or previewing market monitoring of real estate portals. Use this tool both for new monitoring setup and for changing an existing schedule (days or time). Input shape:
-  {"locationQuery":"string","cadence":"daily|weekly","scheduleDays":[1,2,3,4,5],"scheduleTime":"08:00","timezone":"Europe/Prague"}
-  scheduleDays are ISO weekday numbers: 1=Monday 2=Tuesday 3=Wednesday 4=Thursday 5=Friday 6=Saturday 7=Sunday.
-  If the user says "každý den" / "every day" → omit scheduleDays (defaults to all 7 days).
-  If the user says "pracovní dny" / "weekdays" → use [1,2,3,4,5].
-  If the user says "v úterý" / "on Tuesday" → use [2].
-  If the user says "ráno" / "morning" → use scheduleTime "08:00".
-  If the user says "odpoledne" / "afternoon" → use scheduleTime "14:00".
-  If the user only changes the schedule (not the location) → omit locationQuery; the existing saved location will be reused.
-- none: Use when the request needs a future integration, is general, or cannot be answered from current tools.
-
-For daily report requests or "pošli mi ranní přehled" style requests, choose send_morning_report.
-
-For Czech real estate data-quality requests about reconstruction or building changes,
-choose find_incomplete_properties with fields ["reconstruction_year","building_modifications"].
-For lead trend requests over the last 6 months, use groupBy "month".
-For source/origin questions, use groupBy "source".
-For requests combining lead counts and sold properties, choose query_sales_metrics.
-For email requests involving a viewing, choose create_email_draft and set requiresConfirmation true.
-For daily report requests or "pošli ranní report" / "pošli přehled na email", choose send_morning_report.
-For weekly report or presentation requests, choose create_weekly_report.
-For requests to find, search, list, or monitor real estate listings on public real estate portals, choose watch_market.
-For public real estate portal searches, monitor only properties for sale. Do not search rentals, leases, or rental demand.
-For requests to change monitoring schedule ("nastav na úterý", "chci jen v pondělí", "změň čas") → choose watch_market without locationQuery.
-If the user does not provide a date range for lead analytics, use the last 6 full months relative to the current date in the runtime context.
-When the user says "pošli to", "odešli", "ano pošli", "ok pošli", "potvrdit odeslání" or similar confirmation after a previous email draft in the conversation, choose send_email and extract the email details (to, subject, body) from the conversation history.
-
-Return this JSON shape:
-{
-  "message": "short Czech message",
-  "intent": "analytics | data_quality | calendar | email | report | market_watch | general",
-  "toolName": "none | query_lead_metrics | query_sales_metrics | find_incomplete_properties | find_calendar_slots | create_email_draft | send_email | create_weekly_report | send_morning_report | watch_market",
-  "toolInput": {},
-  "requiresConfirmation": boolean
-}
+Pravidla chování:
+- Nikdy si nevymýšlej čísla, klienty, nabídky, termíny ani stav integrací.
+- Používej jen data vrácená funkcemi nebo informace přímo od uživatele.
+- Pokud výsledek funkce obsahuje isMock=true, jasně řekni, že jde o ukázková/demo data.
+- Pokud výsledek funkce obsahuje isMock=false, nikdy netvrď, že jde o ukázková/demo data.
+- Pokud výsledek funkce obsahuje isEmpty=true, jasně řekni, že se nic nenašlo nebo že zdroj není napojený.
+- Akce s následkem nikdy neprováděj bez potvrzení uživatele: send_email, send_morning_report, watch_market s mode="schedule", create_scheduled_task, delete_scheduled_task.
+- Pokud uživatel chce něco odeslat nebo založit, nejdřív napiš, co přesně se chystáš udělat, a požádej o potvrzení.
+- Když uživatel v dalším tahu potvrdí ("ano", "ano pošli", "potvrzuji", "souhlasím", "ano založ", "ano smaž"), můžeš provést dříve popsanou akci.
+- Jednorázové vyhledání nabídek ("najdi", "vyhledej", "ukaž", "vypiš") používej jako watch_market s mode="preview"; to nesmí nic zakládat.
+- Opakované sledování ("sleduj", "hlídej", "posílej každé ráno", "dej vědět když přibude") vyžaduje potvrzení a až pak watch_market s mode="schedule".
+- Pokud uživatel chce OPAKOVANĚ dostávat přehled v určitý čas ("posílej mi každý den v 8", "každé ráno mi dej nabídky"), použij create_scheduled_task — ne watch_market. Pokud ve zprávě chybí čas nebo lokalita, NEVOLEJ funkci — doptej se: "V kolik hodin a pro jakou lokalitu to mám nastavit?"
+- Pro "jaké mám naplánované úlohy", "co mi chodí automaticky" použij list_scheduled_tasks.
+- Při mazání úlohy nejdřív zavolej list_scheduled_tasks k ověření, pak delete_scheduled_task — ale vyžaduje potvrzení.
+- Piš česky.
+- Nepoužívej markdown headery.
+- Klíčová čísla, data a termíny zvýrazni tučně.
+- Pokud se zobrazuje tabulka nebo graf, neopisuj všechny řádky; shrň pointu a další krok.
 `;
 
-const TOOL_RESPONSE_INSTRUCTION = `
-You are Pepa's smart back-office assistant for a Czech real estate company.
-Write a helpful, natural chat reply in Czech based on the tool result provided.
-
-Tone: like a knowledgeable, friendly colleague — warm, clear, never robotic or formulaic.
-Language: Czech only.
-Formatting: Use Markdown. Use **bold** for key numbers, dates, and important values. Use bullet lists (- item) when listing 3+ items. Use short paragraphs separated by blank lines. Never use headers (## or ###) — keep it conversational, not document-like.
-Length: 2–6 sentences or a short list. Add more only if the result has genuinely rich data worth interpreting.
-
-Rules:
-- Use ONLY facts from the tool result. Never invent counts, dates, listings, emails, or slots.
-- A structured artifact (table or chart) is shown below your message — do NOT repeat its raw data. Instead interpret it, highlight what matters, and add a suggested next step.
-- If an integration is missing or not connected, say so in plain Czech and tell the user what needs to be set up.
-- Never mention JSON, tool names, system prompts, or internal implementation.
-- Vary how you open each response — avoid always starting with the same phrase.
-
-Guidance by scenario:
-- analytics: Lead with the **headline number or trend**. Note what's most interesting or surprising. Suggest a follow-up action.
-- calendar: Name the first good free window in **bold** and how long it lasts. If nothing is free, say so clearly.
-- email: Confirm which slot was picked in **bold** and that the draft is ready below for review before sending.
-- data_quality: Say how many properties need attention and which fields are missing most often.
-- report: Briefly frame what the three slides cover — what went well, what needs attention.
-- market_watch: First confirm what schedule was saved — which location, which days, what time. Then summarise the preview search: how many results, from which portals. If Firecrawl is not configured, still confirm the schedule was saved. If the user was only changing the schedule (no locationQuery in input), confirm the new days/time and which location it applies to.
-- email sent: Confirm the email was sent to the recipient in **bold**, mention the subject line.
-
-Return only valid JSON:
-{
-  "message": "string — valid Markdown, escaped for JSON"
-}
-`;
-
-const ToolResponseSchema = z.object({
-  message: z.string().min(1),
-});
+export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
+  {
+    name: "query_lead_metrics",
+    description:
+      "Získá počty leadů nebo klientských poptávek podle období a seskupení. Použij pro dotazy na počet leadů, nové klienty, zdroje leadů, statusy leadů a trend leadů. Pro otázky 'odkud přišli' použij groupBy='source'. Pro vývoj za měsíce použij groupBy='month'.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        dateRange: {
+          type: Type.OBJECT,
+          description: "Období dotazu.",
+          properties: {
+            from: { type: Type.STRING, description: "Datum od ve formátu YYYY-MM-DD." },
+            to: { type: Type.STRING, description: "Datum do ve formátu YYYY-MM-DD." },
+          },
+          required: ["from", "to"],
+        },
+        groupBy: {
+          type: Type.STRING,
+          enum: ["month", "source", "status"],
+          description: "Dimenze seskupení výsledků.",
+        },
+      },
+      required: ["dateRange", "groupBy"],
+    },
+  },
+  {
+    name: "query_sales_metrics",
+    description:
+      "Získá kombinovaný měsíční vývoj počtu leadů a prodaných nemovitostí. Použij pro dotazy typu 'graf vývoje leadů a prodaných nemovitostí' nebo porovnání obchodního výkonu v čase.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        dateRange: {
+          type: Type.OBJECT,
+          description: "Období dotazu.",
+          properties: {
+            from: { type: Type.STRING, description: "Datum od ve formátu YYYY-MM-DD." },
+            to: { type: Type.STRING, description: "Datum do ve formátu YYYY-MM-DD." },
+          },
+          required: ["from", "to"],
+        },
+      },
+      required: ["dateRange"],
+    },
+  },
+  {
+    name: "find_incomplete_properties",
+    description:
+      "Najde nemovitosti s chybějícími údaji. Použij pro kontrolu kvality dat, hlavně když uživatel zmiňuje rekonstrukci, stavební úpravy, energetickou náročnost nebo podlahovou plochu.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        fields: {
+          type: Type.ARRAY,
+          description: "Pole, která se mají zkontrolovat.",
+          items: {
+            type: Type.STRING,
+            enum: [
+              "reconstruction_year",
+              "building_modifications",
+              "energy_rating",
+              "floor_area",
+            ],
+          },
+        },
+      },
+      required: ["fields"],
+    },
+  },
+  {
+    name: "find_calendar_slots",
+    description:
+      "Najde dostupné termíny v kalendáři bez psaní e-mailu. Použij pro dotazy na dostupnost nebo možné termíny prohlídky.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        dateRange: {
+          type: Type.OBJECT,
+          description: "Období hledání.",
+          properties: {
+            from: { type: Type.STRING, description: "Datum od ve formátu YYYY-MM-DD." },
+            to: { type: Type.STRING, description: "Datum do ve formátu YYYY-MM-DD." },
+          },
+          required: ["from", "to"],
+        },
+        durationMinutes: {
+          type: Type.INTEGER,
+          description: "Délka prohlídky v minutách, typicky 45.",
+        },
+        timezone: {
+          type: Type.STRING,
+          description: "Časová zóna, typicky Europe/Prague.",
+        },
+      },
+      required: ["dateRange", "durationMinutes", "timezone"],
+    },
+  },
+  {
+    name: "create_email_draft",
+    description:
+      "Vytvoří profesionální návrh e-mailu zájemci a doporučí termín prohlídky podle dostupnosti. Použij, když uživatel chce napsat e-mail k nemovitosti nebo prohlídce. Tato funkce e-mail neodesílá.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        recipientEmail: {
+          type: Type.STRING,
+          description: "E-mail příjemce, pokud ho uživatel uvedl.",
+        },
+        propertyTitle: {
+          type: Type.STRING,
+          description: "Název nebo popis nemovitosti.",
+        },
+        tone: {
+          type: Type.STRING,
+          enum: ["formal", "friendly"],
+          description: "Tón e-mailu.",
+        },
+        dateRange: {
+          type: Type.OBJECT,
+          description: "Období pro hledání termínu.",
+          properties: {
+            from: { type: Type.STRING, description: "Datum od ve formátu YYYY-MM-DD." },
+            to: { type: Type.STRING, description: "Datum do ve formátu YYYY-MM-DD." },
+          },
+          required: ["from", "to"],
+        },
+        durationMinutes: {
+          type: Type.INTEGER,
+          description: "Délka prohlídky v minutách, typicky 45.",
+        },
+        timezone: {
+          type: Type.STRING,
+          description: "Časová zóna, typicky Europe/Prague.",
+        },
+      },
+    },
+  },
+  {
+    name: "send_email",
+    description:
+      "Odešle e-mail přes Gmail. Použij pouze po explicitním potvrzení uživatele, například 'ano pošli'. Nikdy nepoužívej jako první krok bez předchozího návrhu nebo potvrzení.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        to: { type: Type.STRING, description: "E-mail příjemce." },
+        subject: { type: Type.STRING, description: "Předmět e-mailu." },
+        body: { type: Type.STRING, description: "Text e-mailu." },
+      },
+      required: ["to", "subject", "body"],
+    },
+  },
+  {
+    name: "create_weekly_report",
+    description:
+      "Vytvoří krátký týdenní report a návrh tří slidů pro vedení nebo tým. Použij pro dotazy na shrnutí minulého týdne, report pro vedení nebo prezentaci.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        weekStart: {
+          type: Type.STRING,
+          description: "Začátek týdne ve formátu YYYY-MM-DD, pokud je známý.",
+        },
+        audience: {
+          type: Type.STRING,
+          enum: ["management", "team"],
+          description: "Cílové publikum reportu.",
+        },
+      },
+    },
+  },
+  {
+    name: "send_morning_report",
+    description:
+      "Odešle ranní report e-mailem. Použij pouze po explicitním potvrzení uživatele. Pro samotné vytvoření přehledu bez odeslání nepoužívej.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        recipientEmail: {
+          type: Type.STRING,
+          description: "E-mail příjemce, pokud ho uživatel uvedl.",
+        },
+      },
+    },
+  },
+  {
+    name: "watch_market",
+    description:
+      "Vyhledá nebo nastaví sledování realitních nabídek. mode='preview' použij pro jednorázové najdi/vyhledej/ukaž/vypiš a nikdy nezakládá monitoring. mode='schedule' použij jen po potvrzení uživatele pro opakované sleduj/hlídej/posílej každé ráno.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        mode: {
+          type: Type.STRING,
+          enum: ["preview", "schedule"],
+          description: "preview = jen aktuální vyhledání; schedule = založení/aktualizace monitoringu po potvrzení.",
+        },
+        locationQuery: {
+          type: Type.STRING,
+          description: "Lokalita, například Praha Holešovice.",
+        },
+        cadence: {
+          type: Type.STRING,
+          enum: ["daily", "weekly"],
+          description: "Periodicita monitoringu, pouze pro mode=schedule.",
+        },
+        scheduleDays: {
+          type: Type.ARRAY,
+          description: "ISO dny v týdnu 1=pondělí až 7=neděle, pouze pro mode=schedule.",
+          items: { type: Type.INTEGER },
+        },
+        scheduleTime: {
+          type: Type.STRING,
+          description: "Čas ve formátu HH:mm, například 08:00, pouze pro mode=schedule.",
+        },
+        timezone: {
+          type: Type.STRING,
+          description: "Časová zóna, typicky Europe/Prague.",
+        },
+      },
+      required: ["mode"],
+    },
+  },
+  {
+    name: "create_scheduled_task",
+    description:
+      "Vytvoří opakovanou naplánovanou úlohu uloženou v databázi. Použij POUZE když uživatel chce OPAKOVANĚ dostávat přehled v určitý čas ('posílej mi každý den v 8', 'každé ráno mi dej nabídky'). NE pro jednorázové vyhledání — to je watch_market mode='preview'. Pokud ve zprávě chybí čas nebo lokalita, NEVOLEJ tuto funkci — doptej se uživatele. Akce vyžaduje potvrzení před provedením.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        task_type: {
+          type: Type.STRING,
+          enum: ["market_digest"],
+          description: "Typ úlohy. 'market_digest' = denní přehled nabídek z lokality zaslaný e-mailem.",
+        },
+        location: {
+          type: Type.STRING,
+          description: "Lokalita pro monitoring, např. 'Praha-Holešovice' nebo 'Praha 7'.",
+        },
+        schedule_time: {
+          type: Type.STRING,
+          description: "Čas odeslání ve formátu HH:MM, např. '08:00'.",
+        },
+        transaction: {
+          type: Type.STRING,
+          enum: ["sale", "rent"],
+          description: "Typ transakce: 'sale' = prodej, 'rent' = pronájem. Výchozí 'sale'.",
+        },
+        frequency: {
+          type: Type.STRING,
+          enum: ["daily"],
+          description: "Frekvence opakování. Výchozí 'daily'.",
+        },
+        timezone: {
+          type: Type.STRING,
+          description: "IANA časová zóna, výchozí 'Europe/Prague'.",
+        },
+      },
+      required: ["task_type", "location", "schedule_time"],
+    },
+  },
+  {
+    name: "list_scheduled_tasks",
+    description:
+      "Zobrazí seznam aktivních naplánovaných úloh přihlášeného uživatele. Použij pro 'jaké mám naplánované úlohy', 'co mi chodí automaticky', 'co jsem si nastavil'. Před mazáním nebo úpravou úlohy vždy nejdřív zavolej tuto funkci k ověření ID.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {},
+    },
+  },
+  {
+    name: "update_scheduled_task",
+    description:
+      "Aktualizuje parametry naplánované úlohy (čas, lokalitu, typ transakce). Nejdřív zavolej list_scheduled_tasks k získání správného ID.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        id: {
+          type: Type.STRING,
+          description: "UUID úlohy z výsledku list_scheduled_tasks.",
+        },
+        schedule_time: {
+          type: Type.STRING,
+          description: "Nový čas odeslání ve formátu HH:MM.",
+        },
+        location: {
+          type: Type.STRING,
+          description: "Nová lokalita.",
+        },
+        transaction: {
+          type: Type.STRING,
+          enum: ["sale", "rent"],
+          description: "Nový typ transakce.",
+        },
+        timezone: {
+          type: Type.STRING,
+          description: "Nová IANA časová zóna.",
+        },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "delete_scheduled_task",
+    description:
+      "Smaže naplánovanou úlohu z databáze. Použij pro 'zruš', 'smaž', 'přestaň posílat'. Nejdřív zavolej list_scheduled_tasks k ověření ID. Akce vyžaduje potvrzení uživatele.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        id: {
+          type: Type.STRING,
+          description: "UUID úlohy z výsledku list_scheduled_tasks.",
+        },
+        description: {
+          type: Type.STRING,
+          description: "Stručný popis úlohy pro potvrzovací zprávu, např. 'denní přehled pro Praha-Holešovice v 08:00'.",
+        },
+      },
+      required: ["id"],
+    },
+  },
+];
 
 const EmailDraftSchema = z.object({
   subject: z.string().min(1),
@@ -149,84 +410,47 @@ function extractJson(text: string): unknown {
   return JSON.parse(normalizedText);
 }
 
-export async function generateAgentPlan(
-  userMessage: string,
-  context?: {
-    currentDate?: string;
-    googleCalendarConnected?: boolean;
-    history?: ChatHistoryItem[];
-  },
-): Promise<AgentPlan> {
+export function createGeminiClient() {
   const environment = getGeminiEnvironment();
-  const client = new GoogleGenAI({ apiKey: environment.GEMINI_API_KEY });
-  const contextInstruction = `
-Current date: ${context?.currentDate ?? new Date().toISOString().slice(0, 10)}.
-Google Calendar connected: ${context?.googleCalendarConnected ? "yes" : "no"}.
-For relative dates, calculate ranges from the current date above.
-If the user asks only for available viewing slots or calendar availability, choose find_calendar_slots.
-`;
 
-  const history = context?.history ?? [];
-  const contents =
-    history.length > 0
-      ? [
-          ...history.map((item) => ({
-            role: item.role === "user" ? ("user" as const) : ("model" as const),
-            parts: [{ text: item.content }],
-          })),
-          { role: "user" as const, parts: [{ text: userMessage }] },
-        ]
-      : userMessage;
-
-  const response = await client.models.generateContent({
+  return {
+    client: new GoogleGenAI({ apiKey: environment.GEMINI_API_KEY }),
     model: environment.GEMINI_MODEL,
-    contents,
-    config: {
-      systemInstruction: `${PLANNER_INSTRUCTION}\n${contextInstruction}`,
-      responseMimeType: "application/json",
-      temperature: 0.1,
-    },
-  });
-
-  if (!response.text) {
-    throw new Error("Gemini returned an empty response.");
-  }
-
-  return AgentPlanSchema.parse(extractJson(response.text));
+  };
 }
 
-export async function generateToolResponse(input: {
-  userMessage: string;
-  plan: AgentPlan;
-  toolResult: unknown;
-  artifactDescription?: string;
-  currentDate?: string;
-}) {
-  const environment = getGeminiEnvironment();
-  const client = new GoogleGenAI({ apiKey: environment.GEMINI_API_KEY });
-
-  const response = await client.models.generateContent({
-    model: environment.GEMINI_MODEL,
-    contents: JSON.stringify({
-      currentDate: input.currentDate ?? new Date().toISOString().slice(0, 10),
-      userMessage: input.userMessage,
-      intent: input.plan.intent,
-      toolName: input.plan.toolName,
-      artifactShownBelow: input.artifactDescription ?? null,
-      toolResult: input.toolResult,
-    }),
-    config: {
-      systemInstruction: TOOL_RESPONSE_INSTRUCTION,
-      responseMimeType: "application/json",
-      temperature: 0.4,
+export function getFunctionCallingConfig() {
+  return {
+    tools: [{ functionDeclarations: BUSINESS_FUNCTION_DECLARATIONS }],
+    toolConfig: {
+      functionCallingConfig: {
+        mode: FunctionCallingConfigMode.AUTO,
+      },
     },
-  });
+  };
+}
 
-  if (!response.text) {
-    throw new Error("Gemini returned an empty response.");
-  }
+export function getFunctionCalls(response: { functionCalls?: FunctionCall[] }) {
+  return response.functionCalls ?? [];
+}
 
-  return ToolResponseSchema.parse(extractJson(response.text));
+export function createFunctionResponseContent(
+  name: string,
+  response: Record<string, unknown>,
+  id?: string,
+): Content {
+  return {
+    role: "user",
+    parts: [
+      {
+        functionResponse: {
+          name,
+          id,
+          response,
+        },
+      },
+    ],
+  };
 }
 
 export async function generateEmailDraft(input: {
@@ -236,11 +460,10 @@ export async function generateEmailDraft(input: {
   alternativeSlots: string[];
   recipientEmail?: string;
 }): Promise<{ subject: string; body: string }> {
-  const environment = getGeminiEnvironment();
-  const client = new GoogleGenAI({ apiKey: environment.GEMINI_API_KEY });
+  const { client, model } = createGeminiClient();
 
   const response = await client.models.generateContent({
-    model: environment.GEMINI_MODEL,
+    model,
     contents: JSON.stringify(input),
     config: {
       systemInstruction: EMAIL_DRAFT_INSTRUCTION,

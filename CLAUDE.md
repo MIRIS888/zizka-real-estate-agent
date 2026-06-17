@@ -1,5 +1,23 @@
 # Zizka Real Estate Agent — Context for Claude Code
 
+## Aktuální MVP poznámka — 2026-06-17
+
+Aktuální runtime používá nativní Gemini function calling. Hlavní cesta je teď:
+
+```
+Chat UI → /api/agent → run-agent.ts → Gemini functionCalls → tool handler → functionResponse → Gemini odpověď → UI
+```
+
+`src/lib/agent/deterministic-agent.ts` zůstává v repozitáři, ale není importovaný ani volaný. `GEMINI_API_KEY` je povinný pro zpracování dotazů. Aktuální nastavení je uložené v `docs/AGENT_SETUP.md`.
+
+Před pokračováním ověř:
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+```
+
 ## Co je to za projekt
 
 Back Office Operations Agent pro realitní firmu. Pepa (back office manager) komunikuje s agentem přes chat — agent zvládá analytiku, emaily, kalendář, reporty a sledování realitního trhu.
@@ -13,7 +31,7 @@ Back Office Operations Agent pro realitní firmu. Pepa (back office manager) kom
 ## Stack
 
 - **Frontend/Backend:** Next.js 16 App Router, TypeScript strict
-- **AI:** Gemini 2.5 Flash (`@google/genai`) — planner + tool response
+- **AI:** Gemini 2.5 Flash (`@google/genai`) — native function calling
 - **DB:** Supabase (PostgreSQL) — RLS zapnuté, service role pro cron/agent
 - **Scraping:** Firecrawl API v2 — search přes české realitní portály
 - **Email/Kalendář:** Google OAuth 2.0 — Gmail API + Calendar FreeBusy
@@ -25,9 +43,10 @@ Back Office Operations Agent pro realitní firmu. Pepa (back office manager) kom
 ## Architektura
 
 ```
-Chat UI → /api/chat → run-agent.ts → Gemini (planner)
-                                   → tool handler → výsledek
-                                   → Gemini (tool response) → UI
+Chat UI → /api/agent → run-agent.ts → Gemini functionCalls
+                                  → tool handler
+                                  → functionResponse
+                                  → Gemini odpověď → UI
 
 Vercel Cron (06:00 UTC = 08:00 Praha)
   ├── /api/cron/morning-report  → Po–Pá: report + Gmail
@@ -40,8 +59,8 @@ Vercel Cron (06:00 UTC = 08:00 Praha)
 
 | Soubor | Co dělá |
 |---|---|
-| `src/lib/agent/run-agent.ts` | Hlavní agent — planner → tool dispatch → response |
-| `src/lib/gemini/client.ts` | Gemini klient, PLANNER_INSTRUCTION (seznam toolů + pravidla) |
+| `src/lib/agent/run-agent.ts` | Hlavní function-calling smyčka a tool dispatch |
+| `src/lib/gemini/client.ts` | Gemini klient, system prompt a function declarations |
 | `src/lib/contracts/tools.ts` | Zod schemas pro všechny tool inputs + AgentPlan |
 | `src/lib/tools/market-search.ts` | Firecrawl search přes CZ realitní portály |
 | `src/lib/tools/market-watch-schedule.ts` | Upsert/čtení market watch pravidel, getActiveRulesForNow |

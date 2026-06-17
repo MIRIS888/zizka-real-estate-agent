@@ -1,5 +1,24 @@
 # Zizka Real Estate Agent — Context for Codex
 
+## Aktualizace MVP demo — 2026-06-17
+
+Aktuální runtime je Gemini native function calling: `Chat UI → /api/agent → Gemini functionCalls → tool handler → functionResponse → Gemini odpověď`. Deterministický agent zůstává jen jako nepoužívaný referenční soubor a `GEMINI_API_KEY` je povinný.
+
+Nové/změněné soubory:
+
+- `src/lib/agent/deterministic-agent.ts` (nepoužívaný runtime soubor)
+- `src/app/api/agent/route.ts`
+- `src/lib/local-data/seed.ts`
+- `src/lib/contracts/chat.ts`
+- `src/components/agent-chat.tsx`
+- `docs/AUDIT.md`
+- `docs/AGENT_SETUP.md`
+- `docs/DEMO_SCRIPT.md`
+- `scripts/seed-local.mjs`
+- `scripts/validate-demo.mjs`
+
+Tools mohou dál používat `DATA_SOURCE=local`, ale rozhodování o volání funkcí dělá Gemini function calling.
+
 ## Projekt
 
 Back Office Operations Agent pro realitní firmu. Pepa (back office manager) zadává příkazy přes chat — agent analyzuje data, píše emaily, čte kalendář, generuje reporty a automaticky monitoruje realitní trh.
@@ -13,7 +32,7 @@ Back Office Operations Agent pro realitní firmu. Pepa (back office manager) zad
 ## Stack
 
 - Next.js 16 App Router + TypeScript strict
-- Gemini 2.5 Flash — AI planner + response generator
+- Gemini 2.5 Flash — native function calling
 - Supabase (PostgreSQL + Auth + RLS)
 - Firecrawl API v2 — scraping českých realitních portálů
 - Google OAuth 2.0 — Gmail + Calendar
@@ -24,11 +43,12 @@ Back Office Operations Agent pro realitní firmu. Pepa (back office manager) zad
 ## Architektura
 
 ```
-/api/chat → run-agent.ts:
-  1. Gemini planner → vybere tool + parsuje input
-  2. Tool handler → volá Supabase / Firecrawl / Google API
-  3. Gemini response → generuje českou odpověď
-  4. ChatResponse → UI
+/api/agent → run-agent.ts:
+  1. Gemini vrátí functionCalls nebo rovnou text
+  2. Tool handler volá Supabase / Firecrawl / Google API
+  3. Server vrací functionResponse zpět Geminimu
+  4. Gemini generuje českou odpověď
+  5. ChatResponse → UI
 
 Vercel Cron (06:00 UTC denně):
   /api/cron/morning-report  → ranní report → Gmail (Po–Pá)
@@ -40,8 +60,8 @@ Vercel Cron (06:00 UTC denně):
 ## Klíčové soubory
 
 ```
-src/lib/agent/run-agent.ts              # hlavní agent dispatch
-src/lib/gemini/client.ts                # Gemini, PLANNER_INSTRUCTION
+src/lib/agent/run-agent.ts              # function-calling smyčka + tool dispatch
+src/lib/gemini/client.ts                # Gemini klient, system prompt, function declarations
 src/lib/contracts/tools.ts              # Zod schemas pro tool inputs
 src/lib/tools/market-search.ts          # Firecrawl search
 src/lib/tools/market-watch-schedule.ts  # market_watch_rules CRUD + getActiveRulesForNow

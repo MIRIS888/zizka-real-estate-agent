@@ -20,6 +20,7 @@ export async function POST(request: Request) {
       googleToken,
       history,
       userEmail: user?.email,
+      userId: user?.id,
     });
 
     return NextResponse.json(response);

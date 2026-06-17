@@ -39,19 +39,24 @@ function buildEmailText(locationQuery: string, listings: { title: string; url: s
   return `Nové nabídky – ${locationQuery}\n\n${lines}\n\nAutomatický přehled ze Žižka Reality`;
 }
 
-export async function GET(request: Request) {
-  if (!isCronAuthorized(request)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
+type DispatchResult = {
+  ruleId: string;
+  location: string;
+  sent: boolean;
+  listingCount: number;
+  to?: string;
+  error?: string;
+};
 
+async function runDispatch(): Promise<{ dispatched: number; results: DispatchResult[] }> {
   const rules = await getActiveRulesForNow();
 
   if (rules.length === 0) {
-    return NextResponse.json({ dispatched: 0, reason: "no rules due now" });
+    return { dispatched: 0, results: [] };
   }
 
   const account = await loadGoogleAccount();
-  const results: { ruleId: string; location: string; sent: boolean; listingCount: number; error?: string }[] = [];
+  const results: DispatchResult[] = [];
 
   for (const rule of rules) {
     try {
@@ -67,7 +72,7 @@ export async function GET(request: Request) {
           html: buildEmailHtml(rule.locationQuery, listings),
         });
         await markRuleAsRun(rule.id);
-        results.push({ ruleId: rule.id, location: rule.locationQuery, sent: true, listingCount: listings.length });
+        results.push({ ruleId: rule.id, location: rule.locationQuery, sent: true, listingCount: listings.length, to });
       } else {
         await markRuleAsRun(rule.id);
         results.push({ ruleId: rule.id, location: rule.locationQuery, sent: false, listingCount: listings.length });
@@ -83,5 +88,52 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ dispatched: results.length, results });
+  return { dispatched: results.length, results };
+}
+
+// GET: called by Vercel Cron (Authorization: Bearer <CRON_SECRET>)
+export async function GET(request: Request) {
+  if (!isCronAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const { dispatched, results } = await runDispatch();
+
+  if (dispatched === 0) {
+    return NextResponse.json({ dispatched: 0, reason: "no rules due now" });
+  }
+
+  return NextResponse.json({ dispatched, results });
+}
+
+// POST: called by N8N (same auth). Returns N8N-compatible envelope.
+// Idempotence is handled by getActiveRulesForNow() which skips rules run < 1 hour ago.
+export async function POST(request: Request) {
+  if (!isCronAuthorized(request)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
+  }
+
+  try {
+    const { dispatched, results } = await runDispatch();
+
+    const sentTo = [...new Set(results.filter((r) => r.sent && r.to).map((r) => r.to!))];
+    const errors = results.filter((r) => r.error).map((r) => r.error!);
+
+    if (errors.length > 0 && sentTo.length === 0) {
+      return NextResponse.json({ ok: false, error: errors.join("; ") }, { status: 500 });
+    }
+
+    const sentCount = results.filter((r) => r.sent).length;
+    const summary =
+      dispatched === 0
+        ? "Žádná aktivní pravidla pro tuto dobu"
+        : `Zpracováno ${dispatched} pravidel, odesláno ${sentCount} emailů`;
+
+    return NextResponse.json({ ok: true, task: "market-watch", summary, sentTo });
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
 }

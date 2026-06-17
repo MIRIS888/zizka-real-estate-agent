@@ -1,6 +1,17 @@
 # Stav projektu — Zizka Real Estate Agent
 _Aktualizováno: 2026-06-17_
 
+## Aktualizace MVP demo — 2026-06-17
+
+- Přidán stabilní endpoint `POST /api/agent`; `POST /api/chat` zůstává kompatibilní.
+- Aktuální runtime používá nativní Gemini function calling; deterministická větev `src/lib/agent/deterministic-agent.ts` už není zapojená.
+- Lokální seed data v `src/lib/local-data/seed.ts` nyní obsahují entity `clients`, `leads`, `properties`, `viewings`, `deals`, `tasks`, kalendářní sloty a mock realitní nabídky.
+- UI zobrazuje více tabulek/grafů v jedné odpovědi a sekci `Generated outputs` pro CSV/Markdown/text exporty.
+- Nové předávací dokumenty: `docs/AUDIT.md`, `docs/AGENT_SETUP.md`, `docs/DEMO_SCRIPT.md`, aktualizovaný `README.md`.
+- Nové skripty: `npm run seed:local`, `npm run validate:demo`.
+
+Poznámka: `GEMINI_API_KEY` je pro dotazy povinný. `DATA_SOURCE=local` stále používá lokální data v tools, ale rozhodování o volání funkcí dělá Gemini function calling.
+
 ## Produkce
 
 - **URL:** https://zizka-amber.vercel.app
@@ -43,7 +54,7 @@ _Aktualizováno: 2026-06-17_
 ## Architektura
 
 ```
-Chat → /api/chat → Gemini → tool handler → Supabase / Firecrawl / Google
+Chat → /api/agent → Gemini function calling → tool handler → functionResponse → Gemini odpověď
 Vercel Cron 06:00 UTC:
   morning-report (Po–Pá) → Firecrawl + DB → Gmail
   dispatcher (denně)     → market_watch_rules → Firecrawl → Gmail
