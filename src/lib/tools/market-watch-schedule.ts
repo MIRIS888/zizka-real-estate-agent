@@ -173,7 +173,7 @@ function getCurrentHourInTimezone(timezone: string): number {
     hour12: false,
   }).formatToParts(new Date());
   const hourPart = parts.find((p) => p.type === "hour");
-  return Number(hourPart?.value ?? 0);
+  return Number(hourPart?.value ?? 0) % 24;
 }
 
 function getCurrentIsoWeekday(timezone: string): number {
