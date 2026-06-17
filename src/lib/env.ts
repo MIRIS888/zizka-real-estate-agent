@@ -19,6 +19,10 @@ const N8nEnvironmentSchema = z.object({
   N8N_WEBHOOK_SECRET: z.string().min(24),
 });
 
+const N8nDailyReportEnvironmentSchema = N8nEnvironmentSchema.extend({
+  N8N_DAILY_REPORT_WEBHOOK_URL: z.url(),
+});
+
 const GoogleOAuthEnvironmentSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
@@ -84,6 +88,28 @@ export function getN8nEnvironment() {
   }
 
   return parsedEnvironment.data;
+}
+
+export function getN8nDailyReportEnvironment() {
+  const parsedEnvironment = N8nDailyReportEnvironmentSchema.safeParse({
+    N8N_WEBHOOK_SECRET: process.env.N8N_WEBHOOK_SECRET,
+    N8N_DAILY_REPORT_WEBHOOK_URL: process.env.N8N_DAILY_REPORT_WEBHOOK_URL,
+  });
+
+  if (!parsedEnvironment.success) {
+    throw new Error(
+      "n8n daily report trigger is not configured. Add N8N_DAILY_REPORT_WEBHOOK_URL and N8N_WEBHOOK_SECRET to .env.local.",
+    );
+  }
+
+  return parsedEnvironment.data;
+}
+
+export function isN8nDailyReportConfigured() {
+  return N8nDailyReportEnvironmentSchema.safeParse({
+    N8N_WEBHOOK_SECRET: process.env.N8N_WEBHOOK_SECRET,
+    N8N_DAILY_REPORT_WEBHOOK_URL: process.env.N8N_DAILY_REPORT_WEBHOOK_URL,
+  }).success;
 }
 
 export function getGoogleOAuthEnvironment() {

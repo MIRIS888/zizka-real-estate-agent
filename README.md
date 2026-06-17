@@ -24,6 +24,7 @@ GEMINI_API_KEY=your-key
 GEMINI_MODEL=gemini-2.5-flash
 DATA_SOURCE=local
 N8N_WEBHOOK_SECRET=replace-with-a-long-local-secret-value
+N8N_DAILY_REPORT_WEBHOOK_URL=https://<n8n-host>/webhook/daily-ops-report-chat
 ```
 
 Try these local chat prompts:
@@ -96,6 +97,9 @@ Recommended workflows:
   previous business day, aggregate leads, viewings, sales, incomplete property
   data, and market listings, then send the report to
   `POST /api/webhooks/n8n/daily-report`.
+- `Daily ops report chat trigger`: expose an n8n webhook that the chat can call
+  through `N8N_DAILY_REPORT_WEBHOOK_URL`. The workflow should return
+  `{ "report": <daily report payload>, "stored": <app webhook result>, "email": <gmail result> }`.
 
 All n8n HTTP Request nodes should send:
 

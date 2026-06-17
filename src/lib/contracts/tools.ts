@@ -48,8 +48,21 @@ export const CreateWeeklyReportInputSchema = z.object({
 });
 
 export const WatchMarketInputSchema = z.object({
-  locationQuery: z.string().min(1),
+  locationQuery: z.string().min(1).optional(),
   cadence: z.enum(["daily", "weekly"]).default("daily"),
+  scheduleDays: z.array(z.number().int().min(1).max(7)).min(1).optional(),
+  scheduleTime: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/)
+    .optional(),
+  timezone: z.string().min(1).default("Europe/Prague"),
+});
+
+export const RunDailyReportInputSchema = z.object({
+  reportDate: z.string().date().optional(),
+  timezone: z.string().min(1).default("Europe/Prague"),
+  deliveryChannel: z.enum(["email", "dashboard"]).default("email"),
+  recipientEmail: z.email().optional(),
 });
 
 export const SendEmailInputSchema = z.object({
@@ -67,6 +80,7 @@ export const AgentToolNameSchema = z.enum([
   "create_email_draft",
   "send_email",
   "create_weekly_report",
+  "run_daily_report",
   "watch_market",
 ]);
 

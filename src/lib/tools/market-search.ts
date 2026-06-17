@@ -57,11 +57,16 @@ function getSearchResults(payload: FirecrawlSearchResponse) {
 
 export async function searchMarketListings(rawInput: unknown) {
   const input = WatchMarketInputSchema.parse(rawInput);
+  const locationQuery = input.locationQuery;
+
+  if (!locationQuery) {
+    throw new Error("Market search requires a location query.");
+  }
 
   if (!isFirecrawlConfigured()) {
     return {
       configured: false,
-      query: input.locationQuery,
+      query: locationQuery,
       listings: [],
     };
   }
@@ -74,7 +79,7 @@ export async function searchMarketListings(rawInput: unknown) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      query: buildMarketSearchQuery(input.locationQuery),
+      query: buildMarketSearchQuery(locationQuery),
       limit: 20,
       country: "CZ",
       includeDomains: REAL_ESTATE_DOMAINS,
@@ -98,7 +103,7 @@ export async function searchMarketListings(rawInput: unknown) {
 
   return {
     configured: true,
-    query: input.locationQuery,
+    query: locationQuery,
     transactionType: "sale",
     searchedDomains: REAL_ESTATE_DOMAINS,
     listings,

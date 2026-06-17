@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import { ChatRequestSchema } from "@/lib/contracts/chat";
 import { runAgent } from "@/lib/agent/run-agent";
 import { decodeGoogleToken, GOOGLE_TOKEN_COOKIE } from "@/lib/google/oauth";
+import { getAuthUser } from "@/lib/supabase/auth-server";
 
 export async function POST(request: Request) {
   try {
@@ -14,7 +15,12 @@ export async function POST(request: Request) {
     const googleToken = decodeGoogleToken(
       cookieStore.get(GOOGLE_TOKEN_COOKIE)?.value,
     );
-    const response = await runAgent(message, { googleToken, history });
+    const user = await getAuthUser();
+    const response = await runAgent(message, {
+      googleToken,
+      history,
+      userEmail: user?.email,
+    });
 
     return NextResponse.json(response);
   } catch (error) {

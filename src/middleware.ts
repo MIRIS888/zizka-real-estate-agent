@@ -31,7 +31,10 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isPublicPath =
-    pathname.startsWith("/login") || pathname.startsWith("/auth/");
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth/") ||
+    pathname.startsWith("/api/webhooks/n8n/") ||
+    pathname.startsWith("/api/internal/n8n/");
 
   // On Vercel, request.nextUrl contains the internal localhost URL.
   // Use NEXT_PUBLIC_SITE_URL when available so redirects go to the public domain.

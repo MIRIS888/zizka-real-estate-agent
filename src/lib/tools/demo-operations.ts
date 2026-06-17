@@ -177,7 +177,7 @@ export function createWeeklyReport(rawInput: unknown) {
 
 export function watchMarket(rawInput: unknown) {
   const input = WatchMarketInputSchema.parse(rawInput);
-  const locationQuery = input.locationQuery.toLocaleLowerCase("cs-CZ");
+  const locationQuery = (input.locationQuery ?? "").toLocaleLowerCase("cs-CZ");
   const listings = localMarketListings.filter((listing) =>
     listing.location.toLocaleLowerCase("cs-CZ").includes(locationQuery),
   );

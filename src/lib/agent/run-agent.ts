@@ -7,6 +7,7 @@ import {
   FindIncompletePropertiesInputSchema,
   QueryLeadMetricsInputSchema,
   QuerySalesMetricsInputSchema,
+  RunDailyReportInputSchema,
   SendEmailInputSchema,
   WatchMarketInputSchema,
   type AgentPlan,
@@ -22,6 +23,8 @@ import {
 } from "@/lib/tools/demo-operations";
 import { queryLeadMetrics } from "@/lib/tools/lead-metrics";
 import { searchMarketListings } from "@/lib/tools/market-search";
+import { upsertMarketWatchRule } from "@/lib/tools/market-watch-schedule";
+import { runN8nDailyReport } from "@/lib/tools/n8n-daily-report";
 import { findIncompleteProperties } from "@/lib/tools/property-quality";
 import { sendGmailMessage, type StoredGoogleToken } from "@/lib/google/oauth";
 
@@ -135,6 +138,13 @@ const LOCAL_REPORT_SOURCE = {
   mode: "local_demo" as const,
 };
 
+const N8N_DAILY_REPORT_SOURCE = {
+  label: "n8n denní report",
+  detail:
+    "Report je spuštěný přes n8n workflow, které report sestaví, odešle e-mailem a uloží do aplikace přes daily-report webhook.",
+  mode: "live" as const,
+};
+
 const MARKET_WATCH_SOURCE = {
   label: "Realitní servery",
   detail:
@@ -144,7 +154,10 @@ const MARKET_WATCH_SOURCE = {
 
 async function createAgentPlan(
   userMessage: string,
-  options?: { googleToken?: StoredGoogleToken | null; history?: ChatHistoryItem[] },
+  options?: {
+    googleToken?: StoredGoogleToken | null;
+    history?: ChatHistoryItem[];
+  },
 ): Promise<AgentPlan> {
   return AgentPlanSchema.parse(
     await generateAgentPlan(userMessage, {
@@ -185,7 +198,11 @@ async function withGeminiMessage(
 
 export async function runAgent(
   userMessage: string,
-  options?: { googleToken?: StoredGoogleToken | null; history?: ChatHistoryItem[] },
+  options?: {
+    googleToken?: StoredGoogleToken | null;
+    history?: ChatHistoryItem[];
+    userEmail?: string;
+  },
 ): Promise<ChatResponse> {
   const plan = AgentPlanSchema.parse(await createAgentPlan(userMessage, options));
 
@@ -485,11 +502,79 @@ export async function runAgent(
     );
   }
 
+  if (plan.toolName === "run_daily_report") {
+    const input = RunDailyReportInputSchema.parse({
+      ...(typeof plan.toolInput === "object" && plan.toolInput !== null
+        ? plan.toolInput
+        : {}),
+      ...(options?.userEmail ? { recipientEmail: options.userEmail } : {}),
+    });
+    const result = await runN8nDailyReport(input);
+
+    if (!result.configured || !result.report) {
+      return withGeminiMessage(
+        userMessage,
+        plan,
+        {
+          intent: "report",
+          requiresConfirmation: false,
+          source: {
+            label: "n8n není připojené k chatu",
+            detail:
+              "Pro spuštění denního reportu z chatu je potřeba nastavit N8N_DAILY_REPORT_WEBHOOK_URL a N8N_WEBHOOK_SECRET.",
+            mode: "planned_integration",
+          },
+        },
+        result,
+      );
+    }
+
+    return withGeminiMessage(
+      userMessage,
+      plan,
+      {
+        intent: "report",
+        requiresConfirmation: false,
+        source: N8N_DAILY_REPORT_SOURCE,
+        artifact: {
+          type: "table",
+          title: "Denní provozní report",
+          columns: ["metric", "value"],
+          rows: [
+            { metric: "Nové leady", value: result.report.metrics.newLeads },
+            {
+              metric: "Naplánované prohlídky",
+              value: result.report.metrics.scheduledViewings,
+            },
+            {
+              metric: "Prodané nemovitosti",
+              value: result.report.metrics.soldProperties,
+            },
+            {
+              metric: "Nemovitosti k doplnění",
+              value: result.report.metrics.incompleteProperties,
+            },
+            {
+              metric: "Nové tržní nabídky",
+              value: result.report.metrics.newMarketListings,
+            },
+          ],
+        },
+      },
+      { input, result },
+    );
+  }
+
   if (plan.toolName === "watch_market") {
     const input = WatchMarketInputSchema.parse(plan.toolInput);
-    const result = await searchMarketListings(input);
 
-    const source = result.configured
+    // Save/update the recurring schedule in DB and run a live preview search at the same time
+    const [scheduleResult, searchResult] = await Promise.all([
+      upsertMarketWatchRule(input, { recipientEmail: options?.userEmail ?? null }),
+      searchMarketListings(input),
+    ]);
+
+    const source = searchResult.configured
       ? MARKET_WATCH_SOURCE
       : {
           label: "Firecrawl není nastavený",
@@ -502,22 +587,24 @@ export async function runAgent(
       userMessage,
       plan,
       {
-      intent: "market_watch",
-      requiresConfirmation: false,
-      source,
-      artifact: {
-        type: "table",
-        title: "Výsledky z realitních serverů",
-        columns: ["title", "description", "source", "url"],
-        rows: result.listings.map((listing) => ({
-          title: listing.title,
-          description: listing.description,
-          source: listing.source,
-          url: listing.url,
-        })),
+        intent: "market_watch",
+        requiresConfirmation: false,
+        source,
+        artifact: searchResult.listings.length > 0
+          ? {
+              type: "table",
+              title: "Aktuální nabídky z realitních serverů",
+              columns: ["title", "description", "source", "url"],
+              rows: searchResult.listings.map((listing) => ({
+                title: listing.title,
+                description: listing.description,
+                source: listing.source,
+                url: listing.url,
+              })),
+            }
+          : undefined,
       },
-      },
-      { input, result },
+      { input, scheduleResult, searchResult },
     );
   }
 
