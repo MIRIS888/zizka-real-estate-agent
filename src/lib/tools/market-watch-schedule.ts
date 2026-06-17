@@ -159,3 +159,90 @@ export async function upsertMarketWatchRule(
       : "Monitoring nabídek byl nastavený.",
   };
 }
+
+export type ActiveMarketWatchRule = {
+  id: string;
+  locationQuery: string;
+  recipientEmail: string | null;
+};
+
+function getCurrentHourInTimezone(timezone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "numeric",
+    hour12: false,
+  }).formatToParts(new Date());
+  const hourPart = parts.find((p) => p.type === "hour");
+  return Number(hourPart?.value ?? 0);
+}
+
+function getCurrentIsoWeekday(timezone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "short",
+  }).formatToParts(new Date());
+  const weekdayStr = parts.find((p) => p.type === "weekday")?.value ?? "Mon";
+  const map: Record<string, number> = {
+    Sun: 7, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+  return map[weekdayStr] ?? 1;
+}
+
+function ruleMatchesNow(rule: {
+  schedule_days: number[] | null;
+  schedule_time: string | null;
+  timezone: string | null;
+}): boolean {
+  const timezone = rule.timezone ?? "Europe/Prague";
+  const scheduleTime = rule.schedule_time ?? "08:00";
+  const scheduledHour = Number(scheduleTime.split(":")[0]);
+  const currentHour = getCurrentHourInTimezone(timezone);
+  const currentWeekday = getCurrentIsoWeekday(timezone);
+  const days = rule.schedule_days ?? [1, 2, 3, 4, 5, 6, 7];
+  return currentHour === scheduledHour && days.includes(currentWeekday);
+}
+
+const ActiveRuleRowSchema = z.object({
+  id: z.string().uuid(),
+  location_query: z.string(),
+  schedule_days: z.array(z.number()).nullable(),
+  schedule_time: z.string().nullable(),
+  timezone: z.string().nullable(),
+  recipient_email: z.string().nullable(),
+  last_run_at: z.string().nullable(),
+});
+
+export async function getActiveRulesForNow(): Promise<ActiveMarketWatchRule[]> {
+  const dataSource = getDataSourceEnvironment();
+  if (dataSource.DATA_SOURCE !== "supabase") return [];
+
+  const supabase = createSupabaseServiceClient();
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("market_watch_rules")
+    .select("id, location_query, schedule_days, schedule_time, timezone, recipient_email, last_run_at")
+    .eq("is_active", true)
+    .or(`last_run_at.is.null,last_run_at.lt.${oneHourAgo}`);
+
+  if (error) throw new Error(`Failed to load market watch rules: ${error.message}`);
+
+  return (data ?? [])
+    .map((row) => ActiveRuleRowSchema.parse(row))
+    .filter(ruleMatchesNow)
+    .map((row) => ({
+      id: row.id,
+      locationQuery: row.location_query,
+      recipientEmail: row.recipient_email,
+    }));
+}
+
+export async function markRuleAsRun(ruleId: string): Promise<void> {
+  const supabase = createSupabaseServiceClient();
+  const { error } = await supabase
+    .from("market_watch_rules")
+    .update({ last_run_at: new Date().toISOString() })
+    .eq("id", ruleId);
+
+  if (error) throw new Error(`Failed to mark rule as run: ${error.message}`);
+}
