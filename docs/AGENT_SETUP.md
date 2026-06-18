@@ -92,7 +92,7 @@ Consequential tools (vyžadují token):
 
 Mechanismus (serverový HMAC token, od 2026-06-18):
 1. Server zachytí consequential function call od Gemini.
-2. Vygeneruje HMAC-SHA256 token `{userId, toolName, hash(payload), exp: now+10min}`.
+2. Vygeneruje HMAC-SHA256 token `{userId, toolName, hash(payload), threadId, exp: now+10min}`.
 3. Vrátí uživateli potvrzovací zprávu + `confirmationToken` + `pendingTool`.
 4. UI uloží token v React state a přiloží ho k dalšímu požadavku.
 5. Server ověří token a provede přesně uložený payload.
@@ -221,6 +221,34 @@ Očekávání: agent zavolá `watch_market` s `mode: "preview"` a nezaloží mon
 ## Rate limiting
 
 `/api/chat` má in-memory rate limit: 20 požadavků za minutu per přihlášený uživatel (nebo IP jako fallback). Implementace v `src/lib/agent/rate-limiter.ts`. Při překročení vrátí `429` s českou zprávou a `Retry-After` hlavičkou.
+
+## Přihlášení
+
+Aplikace podporuje dva způsoby přihlášení:
+
+1. **E-mail + heslo** — Supabase Auth (`signInWithPassword` / `signUp`)
+2. **Google OAuth** — přihlášení přes firemní Google účet (stávající chování)
+
+Po přihlášení přes Google OAuth je uživatel automaticky přesměrován na Gmail/Calendar OAuth (pokud ještě není napojený). E-mail + heslo tuto automatiku nespouští.
+
+Přihlašovací stránka: `/login`
+Registrační stránka: `/signup`
+
+## Historie konverzací
+
+Konverzace jsou ukládány do Supabase (tabulky `chat_threads` a `chat_messages`).
+
+- Při načtení aplikace se ze serveru stáhne seznam posledních 50 vláken.
+- Přepnutím na jiné vlákno se dotáhnou zprávy z DB (lazy loading).
+- Nové vlákno se vytvoří přes `POST /api/chat/threads`.
+- Agent API (`POST /api/chat`) nyní přijímá `threadId` a ukládá zprávy do DB.
+- Zprávy jsou dostupné po obnovení stránky.
+
+API endpointy:
+- `GET /api/chat/threads` — seznam vláken
+- `POST /api/chat/threads` — nové vlákno
+- `GET /api/chat/threads/:id` — vlákno + zprávy
+- `DELETE /api/chat/threads/:id` — smazání vlákna
 
 ## Nasazení
 

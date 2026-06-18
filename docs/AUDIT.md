@@ -69,3 +69,15 @@ Nový modul `src/lib/agent/rate-limiter.ts` s in-memory limitem.
 1. Ověřit, že `CRON_SECRET` a `HMAC_SECRET` (nebo `CRON_SECRET` jako fallback) jsou nastaveny na Vercelu.
 2. Pro HMAC tokeny: buď nastavit `HMAC_SECRET` jako dedikovaný klíč, nebo využít existující `CRON_SECRET`.
 3. Smoke test: `npm run lint && npm run typecheck && npm run build`.
+
+## Auth a historie konverzací (2026-06-18)
+
+### Přihlášení — email + heslo
+- Přidáno na přihlašovací stránce (`/login`) vedle stávajícího Google OAuth.
+- Nová registrační stránka `/signup`.
+- Oba způsoby přihlášení jsou plně oddělené od Google OAuth pro Gmail/Calendar.
+
+### Historie konverzací — Supabase
+- Tabulky `chat_threads` a `chat_messages` s RLS (uživatel vidí jen svá vlákna).
+- Chat UI načítá vlákna z DB; localStorage pro vlákna byl odstraněn.
+- Confirmation token nyní obsahuje `threadId` — token z jednoho vlákna nelze zneužít v jiném.
