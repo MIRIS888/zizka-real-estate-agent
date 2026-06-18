@@ -110,9 +110,10 @@ export async function POST(request: Request) {
 
       const params = task.params as { location: string; transaction?: string; recipient_email?: string };
       const location = params.location;
+      const transaction = params.transaction === "rent" ? "rent" : "sale";
 
       try {
-        const search = await searchMarketListings({ locationQuery: location });
+        const search = await searchMarketListings({ locationQuery: location, transaction });
         const listings = search.listings ?? [];
 
         // Determine recipient: stored in params (set at task creation) or org account email

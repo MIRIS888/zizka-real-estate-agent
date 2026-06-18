@@ -35,7 +35,16 @@ const REAL_ESTATE_DOMAINS = [
   "engelvoelkers.com",
 ];
 
-function buildMarketSearchQuery(locationQuery: string) {
+function buildMarketSearchQuery(locationQuery: string, transaction: "sale" | "rent" = "sale") {
+  if (transaction === "rent") {
+    return [
+      `"${locationQuery}"`,
+      "(pronájem OR pronajem OR nájem OR najem)",
+      "(byt OR dům OR dum OR nemovitost OR pokoj)",
+      "-prodej",
+    ].join(" ");
+  }
+
   return [
     `"${locationQuery}"`,
     "prodej",
@@ -71,6 +80,7 @@ export async function searchMarketListings(rawInput: unknown) {
     };
   }
 
+  const transaction = (input as { transaction?: string }).transaction === "rent" ? "rent" : "sale";
   const environment = getFirecrawlEnvironment();
   const response = await fetch(`${environment.FIRECRAWL_API_URL}/search`, {
     method: "POST",
@@ -79,7 +89,7 @@ export async function searchMarketListings(rawInput: unknown) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      query: buildMarketSearchQuery(locationQuery),
+      query: buildMarketSearchQuery(locationQuery, transaction),
       limit: 20,
       country: "CZ",
       includeDomains: REAL_ESTATE_DOMAINS,
@@ -104,7 +114,7 @@ export async function searchMarketListings(rawInput: unknown) {
   return {
     configured: true,
     query: locationQuery,
-    transactionType: "sale",
+    transactionType: transaction,
     searchedDomains: REAL_ESTATE_DOMAINS,
     listings,
   };

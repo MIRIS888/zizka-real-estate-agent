@@ -305,13 +305,23 @@ function hasPendingConfirmation(history?: ChatHistoryItem[]) {
   );
 }
 
-function isConsequentialAction(action: FunctionToolCall) {
-  return (
-    action.toolName === "send_email" ||
-    action.toolName === "send_morning_report" ||
-    action.toolName === "create_scheduled_task" ||
-    action.toolName === "delete_scheduled_task"
-  );
+const ALWAYS_CONSEQUENTIAL = new Set<string>([
+  "send_email",
+  "send_morning_report",
+  "create_scheduled_task",
+  "update_scheduled_task",
+  "delete_scheduled_task",
+]);
+
+function isConsequentialAction(action: FunctionToolCall): boolean {
+  if (ALWAYS_CONSEQUENTIAL.has(action.toolName)) return true;
+
+  if (action.toolName === "watch_market") {
+    const parsed = WatchMarketInputSchema.safeParse(action.toolInput);
+    return parsed.success && parsed.data.mode === "schedule";
+  }
+
+  return false;
 }
 
 function userConfirmedPendingAction(userMessage: string, history?: ChatHistoryItem[]) {
@@ -370,10 +380,20 @@ function buildConfirmationMessage(action: FunctionToolCall) {
     return `Chystám se nastavit denní automatický přehled nabídek z **${location}** každý den v **${time}**. Úloha se uloží a bude vám chodit e-mailem. Potvrďte prosím odpovědí ’ano založ’.`;
   }
 
+  if (action.toolName === "update_scheduled_task") {
+    const raw = action.toolInput as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof raw.location === "string") parts.push(`lokalita: **${raw.location}**`);
+    if (typeof raw.schedule_time === "string") parts.push(`čas: **${raw.schedule_time}**`);
+    if (typeof raw.transaction === "string") parts.push(`typ: **${raw.transaction === "rent" ? "pronájem" : "prodej"}**`);
+    const changes = parts.length > 0 ? parts.join(", ") : "parametry úlohy";
+    return `Chystám se upravit naplánovanou úlohu — nové nastavení: ${changes}. Potvrďte prosím odpovědí ‘ano uprav’.`;
+  }
+
   if (action.toolName === "delete_scheduled_task") {
     const raw = action.toolInput as Record<string, unknown>;
     const desc = typeof raw.description === "string" ? raw.description : "tuto naplánovanou úlohu";
-    return `Opravdu smazat: **${desc}**? Po smazání vám přestanou chodit automatické přehledy. Potvrďte prosím odpovědí ’ano smaž’.`;
+    return `Opravdu smazat: **${desc}**? Po smazání vám přestanou chodit automatické přehledy. Potvrďte prosím odpovědí ‘ano smaž’.`;
   }
 
   return "Tento krok má vedlejší efekt. Potvrďte prosím, že ho mám provést.";
@@ -643,37 +663,12 @@ async function executeToolAction(
   }
 
   if (action.toolName === "create_email_draft") {
-    if (!options?.googleToken) {
-      return {
-        toolName: action.toolName,
-        toolInput: action.toolInput,
-        result: {
-          connected: false,
-          reason: "google_calendar_required",
-          isMock: false,
-          isEmpty: true,
-        },
-        isMock: false,
-        isEmpty: true,
-        response: {
-        intent: "email",
-        requiresConfirmation: false,
-        source: {
-          label: "Google Calendar není připojený",
-          detail:
-            "Agent nemůže doporučit termín podle skutečné dostupnosti bez připojeného Google účtu.",
-          mode: "planned_integration",
-        },
-        },
-      };
-    }
-
     const rawInput =
       typeof action.toolInput === "object" && action.toolInput !== null
         ? (action.toolInput as Record<string, unknown>)
         : {};
 
-    // Fallback: if planner missed the email address, extract it from the user's message
+    // Fallback: extract email from user message if planner missed it
     const planEmail =
       typeof rawInput.recipientEmail === "string" ? rawInput.recipientEmail : undefined;
     const emailFromMessage =
@@ -690,38 +685,45 @@ async function executeToolAction(
       googleToken: options?.googleToken,
     });
 
-    if (!draft.recommendedSlot) {
+    const calendarConnected = !!options?.googleToken;
+    const hasSlot = !!draft.recommendedSlot;
+
+    const source = hasSlot
+      ? GOOGLE_CALENDAR_SOURCE
+      : calendarConnected
+        ? {
+            label: "Google Calendar — žádné volné termíny",
+            detail: "V nastaveném rozsahu nebyly nalezeny žádné volné termíny. E-mail byl připraven bez doporučeného termínu.",
+            mode: "live" as const,
+          }
+        : {
+            label: "Google Calendar není připojený",
+            detail: "E-mail byl připraven bez doporučeného termínu — pro reálnou dostupnost připojte Google účet.",
+            mode: "planned_integration" as const,
+          };
+
+    // If we have no body (draft failed completely), return error
+    if (!draft.body) {
       return {
         toolName: action.toolName,
         toolInput: input,
-        result: {
-          input,
-          draft,
-          connected: true,
-          reason: "no_available_google_calendar_slots",
-          isMock: false,
-          isEmpty: true,
-        },
+        result: { input, draft, connected: calendarConnected, isMock: false, isEmpty: true },
         isMock: false,
         isEmpty: true,
-        response: {
-          intent: "email",
-          requiresConfirmation: false,
-          source: GOOGLE_CALENDAR_SOURCE,
-        },
+        response: { intent: "email", requiresConfirmation: false, source },
       };
     }
 
     return {
       toolName: action.toolName,
       toolInput: input,
-      result: { input, draft, isMock: false, isEmpty: false },
+      result: { input, draft, connected: calendarConnected, isMock: false, isEmpty: false },
       isMock: false,
       isEmpty: false,
       response: {
         intent: "email",
         requiresConfirmation: true,
-        source: GOOGLE_CALENDAR_SOURCE,
+        source,
         emailDraft: {
           to: draft.recipientEmail,
           subject: draft.subject,

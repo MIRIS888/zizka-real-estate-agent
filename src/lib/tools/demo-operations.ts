@@ -101,25 +101,12 @@ export async function createViewingEmailDraft(
   }
 
   const calendarSlots = availability?.freeSlots ?? [];
+  const recommendedSlot = calendarSlots[0] ?? null;
 
-  if (calendarSlots.length === 0) {
-    return {
-      recommendedSlot: null,
-      subject: `Prohlidka nemovitosti: ${propertyTitle}`,
-      body: "",
-      recipientEmail: input.recipientEmail ?? "zajemce@example.com",
-      source: availability ? "no_google_slots" : "not_connected",
-      alternatives: [],
-      freeWindows: availability?.freeWindows ?? [],
-      busySlots: availability?.busySlots ?? [],
-    };
-  }
-
-  const recommendedSlot = calendarSlots[0];
   const draft = await generateEmailDraft({
     propertyTitle,
     tone: input.tone ?? "formal",
-    recommendedSlot: recommendedSlot.label,
+    recommendedSlot: recommendedSlot?.label ?? null,
     alternativeSlots: calendarSlots.slice(1).map((slot) => slot.label),
     recipientEmail: input.recipientEmail,
   });
@@ -129,7 +116,7 @@ export async function createViewingEmailDraft(
     subject: draft.subject,
     body: draft.body,
     recipientEmail: input.recipientEmail ?? "zajemce@example.com",
-    source: "google_calendar",
+    source: recommendedSlot ? "google_calendar" : (availability ? "no_google_slots" : "not_connected"),
     alternatives: calendarSlots.slice(1),
     freeWindows: availability?.freeWindows ?? [],
     busySlots: availability?.busySlots ?? [],
