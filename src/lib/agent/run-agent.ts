@@ -675,10 +675,27 @@ async function executeToolAction(
       userMessage.match(/\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/)?.[0];
     const recipientEmail = planEmail ?? emailFromMessage;
 
+    // Sanitize dateRange from Gemini: Gemini may return natural-language strings
+    // instead of YYYY-MM-DD, which would fail the strict z.string().date() check.
+    // Keep only valid ISO date strings; fall back to message inference or no dateRange.
+    const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const geminiDateRange = rawInput.dateRange as { from?: unknown; to?: unknown } | undefined;
+    const hasValidGeminiRange =
+      geminiDateRange &&
+      typeof geminiDateRange.from === "string" &&
+      typeof geminiDateRange.to === "string" &&
+      ISO_DATE_RE.test(geminiDateRange.from) &&
+      ISO_DATE_RE.test(geminiDateRange.to);
+
+    const sanitizedInput = {
+      ...rawInput,
+      ...(hasValidGeminiRange ? {} : { dateRange: undefined }),
+    };
+
     const input = CreateEmailDraftInputSchema.parse({
       durationMinutes: 45,
       timezone: "Europe/Prague",
-      ...withInferredCalendarRange(userMessage, rawInput),
+      ...withInferredCalendarRange(userMessage, sanitizedInput),
       ...(recipientEmail ? { recipientEmail } : {}),
     });
     const draft = await createViewingEmailDraft(input, {
