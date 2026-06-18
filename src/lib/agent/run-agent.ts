@@ -35,6 +35,7 @@ import {
   createWeeklyReport,
   findViewingSlots,
   queryMonthlyPerformance,
+  watchMarket,
 } from "@/lib/tools/demo-operations";
 import { queryLeadMetrics } from "@/lib/tools/lead-metrics";
 import { searchMarketListings } from "@/lib/tools/market-search";
@@ -68,6 +69,30 @@ type FunctionToolCall = {
 
 function formatDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
+}
+
+function generateDemoCalendarSlots(timezone: string) {
+  const now = new Date();
+  const entries = [
+    { daysAhead: 2, hour: 10 },
+    { daysAhead: 3, hour: 14 },
+    { daysAhead: 4, hour: 11 },
+  ];
+
+  return entries.map(({ daysAhead, hour }) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + daysAhead);
+    const dateStr = d.toISOString().slice(0, 10);
+    const startsAt = new Date(`${dateStr}T${String(hour).padStart(2, "0")}:00:00+02:00`).toISOString();
+    const endsAt = new Date(`${dateStr}T${String(hour).padStart(2, "0")}:45:00+02:00`).toISOString();
+    const label = new Intl.DateTimeFormat("cs-CZ", {
+      timeZone: timezone,
+      weekday: "long",
+      day: "numeric",
+      month: "numeric",
+    }).format(new Date(startsAt));
+    return { startsAt, endsAt, label: `${label} v ${String(hour).padStart(2, "0")}:00` };
+  });
 }
 
 function formatCalendarTimeRange(startIso: string, endIso: string, tz: string): string {
@@ -576,7 +601,7 @@ async function executeToolAction(
     const input = QuerySalesMetricsInputSchema.parse({
       dateRange: normalizeDateRange(rawInput.dateRange),
     });
-    const metrics = queryMonthlyPerformance(organizationId, input);
+    const metrics = await queryMonthlyPerformance(organizationId, input);
     const totalLeads = metrics.reduce((sum, metric) => sum + metric.leads, 0);
     const totalSales = metrics.reduce(
       (sum, metric) => sum + metric.soldProperties,
@@ -660,21 +685,31 @@ async function executeToolAction(
     });
 
     if (result.source !== "google_calendar") {
+      const demoSlots = generateDemoCalendarSlots(input.timezone);
       return {
         toolName: action.toolName,
         toolInput: input,
-        result: { input, connected: false, slots: [], isMock: false, isEmpty: true },
-        isMock: false,
-        isEmpty: true,
+        result: { input, connected: false, slots: demoSlots, isMock: true, isEmpty: false },
+        isMock: true,
+        isEmpty: false,
         response: {
-        intent: "calendar",
-        requiresConfirmation: false,
-        source: {
-          label: "Google Calendar není připojený",
-          detail:
-            "Pro čtení reálné dostupnosti je potřeba nejdřív připojit Google účet. Bez něj agent nebude vydávat demo sloty za skutečný kalendář.",
-          mode: "planned_integration",
-        },
+          intent: "calendar",
+          requiresConfirmation: false,
+          source: {
+            label: "Demo termíny (Google Calendar nepřipojen)",
+            detail:
+              "Zobrazeny jsou ukázkové termíny. Pro čtení reálné dostupnosti připojte Google účet v nastavení.",
+            mode: "mock_fallback",
+          },
+          artifact: {
+            type: "table",
+            title: "Ukázkové volné termíny",
+            columns: ["čas", "stav"],
+            rows: demoSlots.map((slot, i) => ({
+              čas: formatCalendarTimeRange(slot.startsAt, slot.endsAt, input.timezone),
+              stav: i === 0 ? "Volno — doporučeno (demo)" : "Volno — alternativa (demo)",
+            })),
+          },
         },
       };
     }
@@ -864,25 +899,27 @@ async function executeToolAction(
 
   if (action.toolName === "create_weekly_report") {
     const input = CreateWeeklyReportInputSchema.parse(action.toolInput);
-    const report = createWeeklyReport(input);
-    const result = { input, report, isMock: true, isEmpty: false };
+    const organizationId = getDefaultOrganizationId();
+    const report = await createWeeklyReport(input, organizationId);
+    const isMock = getDataSourceEnvironment().DATA_SOURCE === "local";
+    const result = { input, report, isMock, isEmpty: false };
 
     return {
       toolName: action.toolName,
       toolInput: input,
       result,
-      isMock: true,
+      isMock,
       isEmpty: false,
       response: {
-      intent: "report",
-      requiresConfirmation: false,
-      source: LOCAL_REPORT_SOURCE,
-      artifact: {
-        type: "table",
-        title: "Prezentace pro vedeni - 3 slidy",
-        columns: ["slide", "title", "content"],
-        rows: report.slides,
-      },
+        intent: "report",
+        requiresConfirmation: false,
+        source: isMock ? LOCAL_REPORT_SOURCE : getBusinessDataSource(),
+        artifact: {
+          type: "table",
+          title: "Prezentace pro vedení — 3 slidy",
+          columns: ["slide", "title", "content"],
+          rows: report.slides,
+        },
       },
     };
   }
@@ -984,18 +1021,27 @@ async function executeToolAction(
             searchMarketListings(input),
           ])
         : [null, await searchMarketListings(input)] as const;
-    const isMock =
-      input.mode === "schedule" &&
-      getDataSourceEnvironment().DATA_SOURCE === "local";
-    const isEmpty = !searchResult.configured || searchResult.listings.length === 0;
 
-    const source = searchResult.configured
+    const isFirecrawlConnected = searchResult.configured;
+    const effectiveListings = isFirecrawlConnected
+      ? searchResult.listings
+      : watchMarket(input).listings.map((listing) => ({
+          title: listing.title,
+          description: `${listing.location} — ${new Intl.NumberFormat("cs-CZ").format(listing.price)} Kč`,
+          source: listing.source,
+          url: listing.url,
+        }));
+
+    const isMock = !isFirecrawlConnected;
+    const isEmpty = effectiveListings.length === 0;
+
+    const source = isFirecrawlConnected
       ? MARKET_WATCH_SOURCE
       : {
-          label: "Firecrawl není nastavený",
+          label: "Demo nabídky (Firecrawl nepřipojen)",
           detail:
-            "Pro živé hledání na realitních serverech je potřeba nastavit FIRECRAWL_API_KEY.",
-          mode: "planned_integration" as const,
+            "Zobrazeny jsou ukázkové nabídky z demo datasetu. Pro živé hledání na realitních serverech nastavte FIRECRAWL_API_KEY.",
+          mode: "mock_fallback" as const,
         };
 
     return {
@@ -1016,12 +1062,14 @@ async function executeToolAction(
         intent: "market_watch",
         requiresConfirmation: input.mode === "schedule",
         source,
-        artifact: searchResult.listings.length > 0
+        artifact: effectiveListings.length > 0
           ? {
               type: "table",
-              title: "Aktuální nabídky z realitních serverů",
+              title: isFirecrawlConnected
+                ? "Aktuální nabídky z realitních serverů"
+                : "Ukázkové nabídky (demo dataset)",
               columns: ["title", "description", "source", "url"],
-              rows: searchResult.listings.map((listing) => ({
+              rows: effectiveListings.map((listing) => ({
                 title: listing.title,
                 description: listing.description,
                 source: listing.source,

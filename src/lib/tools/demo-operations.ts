@@ -15,6 +15,10 @@ import {
   type StoredGoogleToken,
 } from "@/lib/google/oauth";
 import { generateEmailDraft } from "@/lib/gemini/client";
+import { getDataSourceEnvironment } from "@/lib/env";
+import { createSupabaseServiceClient } from "@/lib/supabase/server";
+import { queryLeadMetrics } from "@/lib/tools/lead-metrics";
+import { findIncompleteProperties } from "@/lib/tools/property-quality";
 
 type MonthlyPerformance = {
   month: string;
@@ -34,11 +38,58 @@ function isWithinDateRange(value: string, from: string, to: string) {
   );
 }
 
-export function queryMonthlyPerformance(
+export async function queryMonthlyPerformance(
   organizationId: string,
   rawInput: unknown,
-): MonthlyPerformance[] {
+): Promise<MonthlyPerformance[]> {
   const input = QuerySalesMetricsInputSchema.parse(rawInput);
+  const dataSource = getDataSourceEnvironment();
+
+  if (dataSource.DATA_SOURCE === "supabase") {
+    const supabase = createSupabaseServiceClient();
+
+    const [leadsResult, propertiesResult] = await Promise.all([
+      supabase
+        .from("leads")
+        .select("created_at")
+        .eq("organization_id", organizationId)
+        .gte("created_at", `${input.dateRange.from}T00:00:00.000Z`)
+        .lte("created_at", `${input.dateRange.to}T23:59:59.999Z`),
+      supabase
+        .from("properties")
+        .select("updated_at")
+        .eq("organization_id", organizationId)
+        .eq("status", "sold")
+        .gte("updated_at", `${input.dateRange.from}T00:00:00.000Z`)
+        .lte("updated_at", `${input.dateRange.to}T23:59:59.999Z`),
+    ]);
+
+    if (leadsResult.error) {
+      throw new Error(`Failed to load leads: ${leadsResult.error.message}`);
+    }
+    if (propertiesResult.error) {
+      throw new Error(`Failed to load sold properties: ${propertiesResult.error.message}`);
+    }
+
+    const grouped = new Map<string, MonthlyPerformance>();
+
+    for (const row of (leadsResult.data ?? []) as Array<{ created_at: string }>) {
+      const key = monthKey(row.created_at);
+      const entry = grouped.get(key) ?? { month: key, leads: 0, soldProperties: 0 };
+      entry.leads += 1;
+      grouped.set(key, entry);
+    }
+
+    for (const row of (propertiesResult.data ?? []) as Array<{ updated_at: string }>) {
+      const key = monthKey(row.updated_at);
+      const entry = grouped.get(key) ?? { month: key, leads: 0, soldProperties: 0 };
+      entry.soldProperties += 1;
+      grouped.set(key, entry);
+    }
+
+    return [...grouped.values()].sort((a, b) => a.month.localeCompare(b.month));
+  }
+
   const grouped = new Map<string, MonthlyPerformance>();
 
   for (const lead of localLeads) {
@@ -145,29 +196,81 @@ export async function findViewingSlots(
   }
 }
 
-export function createWeeklyReport(rawInput: unknown) {
-  CreateWeeklyReportInputSchema.parse(rawInput);
+export async function createWeeklyReport(
+  rawInput: unknown,
+  organizationId?: string,
+) {
+  const input = CreateWeeklyReportInputSchema.parse(rawInput);
+
+  const now = new Date();
+  const weekEndDate = input.weekStart
+    ? new Date(`${input.weekStart}T23:59:59Z`)
+    : now;
+  const weekStartDate = new Date(weekEndDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const dateRange = {
+    from: weekStartDate.toISOString().slice(0, 10),
+    to: weekEndDate.toISOString().slice(0, 10),
+  };
+
+  let totalLeads = 0;
+  let topSource = "Sreality";
+  let totalSold = 0;
+  let incompleteCount = 0;
+
+  if (organizationId) {
+    try {
+      const [leadMetrics, incompleteProps, salesData] = await Promise.all([
+        queryLeadMetrics(organizationId, { dateRange, groupBy: "source" }),
+        findIncompleteProperties(organizationId, {
+          fields: ["reconstruction_year", "building_modifications", "energy_rating", "floor_area"],
+        }),
+        queryMonthlyPerformance(organizationId, { dateRange }),
+      ]);
+
+      totalLeads = leadMetrics.reduce((sum, m) => sum + m.count, 0);
+      topSource = leadMetrics.sort((a, b) => b.count - a.count)[0]?.label ?? "Sreality";
+      totalSold = salesData.reduce((sum, m) => sum + m.soldProperties, 0);
+      incompleteCount = incompleteProps.length;
+    } catch {
+      totalLeads = 0;
+      topSource = "Sreality";
+      totalSold = 0;
+      incompleteCount = 0;
+    }
+  }
+
+  const soldText = totalSold === 1 ? "1 prodaná nemovitost" : `${totalSold} prodané nemovitosti`;
+  const leadsText = totalLeads === 1 ? "1 nový lead" : `${totalLeads} nových leadů`;
+  const incompleteText =
+    incompleteCount === 0
+      ? "žádné nemovitosti s chybějícími daty"
+      : incompleteCount === 1
+        ? "1 nemovitost vyžaduje doplnění dat"
+        : `${incompleteCount} nemovitostí vyžaduje doplnění dat`;
 
   return {
-    summary:
-      "Minuly tyden prinesl 8 novych leadu, 3 naplanovane prohlidky, 1 uzavreny prodej a 4 nemovitosti vyzaduji doplneni technickych udaju.",
+    summary: `Minulý týden přinesl ${leadsText}, nejsilnější zdroj ${topSource}, ${soldText} a ${incompleteText}.`,
     slides: [
       {
         slide: 1,
-        title: "Obchodni vykon",
-        content: "8 novych leadu, nejsilnejsi zdroj Sreality, 1 prodana nemovitost.",
+        title: "Obchodní výkon",
+        content: `${leadsText.charAt(0).toUpperCase() + leadsText.slice(1)}, nejsilnější zdroj ${topSource}, ${soldText}.`,
       },
       {
         slide: 2,
-        title: "Operativni rizika",
+        title: "Operativní rizika",
         content:
-          "4 nemovitosti maji nekompletni data, hlavne rekonstrukce a stavebni upravy.",
+          incompleteCount > 0
+            ? `${incompleteCount} nemovitostí má nekompletní data, hlavně rekonstrukce a stavební úpravy.`
+            : "Všechna data nemovitostí jsou aktuální. Žádné chybějící záznamy.",
       },
       {
         slide: 3,
-        title: "Doporucene kroky",
+        title: "Doporučené kroky",
         content:
-          "Doplnit technicka data, kontaktovat nove leady do 24 hodin, potvrdit prohlidky.",
+          incompleteCount > 0
+            ? `Doplnit technická data, kontaktovat nové leady do 24 hodin, potvrdit prohlídky.`
+            : "Kontaktovat nové leady do 24 hodin, potvrdit naplánované prohlídky.",
       },
     ],
   };

@@ -106,5 +106,7 @@ Agent v odpovědích uvádí zdroj dat, aby bylo zřejmé, zda jde o lokální d
 
 - Audit: `docs/AUDIT.md`
 - Nastavení agenta: `docs/AGENT_SETUP.md`
+- Demo data a seed: `docs/DEMO_DATA.md`
 - Script pro video: `docs/DEMO_SCRIPT.md`
+- Testování cron úloh: `docs/CRON_TESTING.md`
 - Poznámky pro navázání v Claude Code: `CLAUDE.md`, `STATUS.md`, `codex.md`

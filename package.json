@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "seed:local": "node scripts/seed-local.mjs",
+    "seed:supabase": "node scripts/seed-supabase-demo.mjs",
     "validate:demo": "node scripts/validate-demo.mjs"
   },
   "dependencies": {

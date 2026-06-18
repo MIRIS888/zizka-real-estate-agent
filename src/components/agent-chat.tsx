@@ -94,6 +94,8 @@ const SOURCE_LABELS: Record<ResponseSource["mode"], string> = {
   supabase: "Databáze",
   planned_integration: "Integrace",
   live: "Živě",
+  mock_fallback: "Demo záloha",
+  not_configured: "Nepřipojeno",
 };
 
 const QUICK_PROMPTS: QuickPrompt[] = [
