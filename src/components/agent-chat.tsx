@@ -444,11 +444,41 @@ function useTheme() {
   return { dark, toggle };
 }
 
+const THREADS_STORAGE_KEY = "zizka_chat_threads";
+const ACTIVE_THREAD_STORAGE_KEY = "zizka_chat_active_thread";
+
+function loadThreadsFromStorage(): ChatThread[] {
+  if (typeof window === "undefined") return [createThread()];
+  try {
+    const raw = localStorage.getItem(THREADS_STORAGE_KEY);
+    if (!raw) return [createThread()];
+    const parsed = JSON.parse(raw) as ChatThread[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return [createThread()];
+    return parsed;
+  } catch {
+    return [createThread()];
+  }
+}
+
+function loadActiveThreadIdFromStorage(threads: ChatThread[]): string {
+  if (typeof window === "undefined") return threads[0].id;
+  try {
+    const saved = localStorage.getItem(ACTIVE_THREAD_STORAGE_KEY);
+    if (saved && threads.some((t) => t.id === saved)) return saved;
+  } catch {
+    // ignore
+  }
+  return threads[0].id;
+}
+
 export function AgentChat() {
   const { dark, toggle: toggleTheme } = useTheme();
   const [message, setMessage] = useState("");
-  const [threads, setThreads] = useState<ChatThread[]>(() => [createThread()]);
-  const [activeThreadId, setActiveThreadId] = useState(() => threads[0].id);
+  const [threads, setThreads] = useState<ChatThread[]>(() => loadThreadsFromStorage());
+  const [activeThreadId, setActiveThreadId] = useState<string>(() => {
+    const t = loadThreadsFromStorage();
+    return loadActiveThreadIdFromStorage(t);
+  });
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
@@ -456,6 +486,23 @@ export function AgentChat() {
 
   const activeThread = threads.find((t) => t.id === activeThreadId);
   const activeMessages = activeThread?.messages ?? [];
+
+  // Persist threads and active thread to localStorage on every change
+  useEffect(() => {
+    try {
+      localStorage.setItem(THREADS_STORAGE_KEY, JSON.stringify(threads));
+    } catch {
+      // ignore quota errors
+    }
+  }, [threads]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVE_THREAD_STORAGE_KEY, activeThreadId);
+    } catch {
+      // ignore quota errors
+    }
+  }, [activeThreadId]);
 
   async function refreshGoogleStatus() {
     const res = await fetch("/api/auth/google/status");
