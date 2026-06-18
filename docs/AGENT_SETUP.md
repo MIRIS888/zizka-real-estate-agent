@@ -158,3 +158,5 @@ https://zizka-amber.vercel.app
 ```
 
 Aktuální function-calling verze byla nasazena na Vercel a ověřena přes `POST /api/agent`.
+
+Návod na ruční testování cron úloh: [docs/CRON_TESTING.md](./CRON_TESTING.md)
