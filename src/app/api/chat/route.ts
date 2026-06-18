@@ -33,9 +33,10 @@ export async function POST(request: Request) {
 
     let threadId: string | undefined = incomingThreadId;
     let history: ChatHistoryItem[] = requestHistory ?? [];
+    let supabase: Awaited<ReturnType<typeof createSupabaseAuthServerClient>> | undefined;
 
     if (user) {
-      const supabase = await createSupabaseAuthServerClient();
+      supabase = await createSupabaseAuthServerClient();
 
       if (threadId) {
         // Load history from DB — DB is the source of truth
@@ -92,9 +93,8 @@ export async function POST(request: Request) {
     });
 
     // Persist messages to DB after a successful agent response
-    if (user && threadId) {
+    if (user && threadId && supabase) {
       try {
-        const supabase = await createSupabaseAuthServerClient();
         await supabase.from("chat_messages").insert([
           { thread_id: threadId, role: "user", content: message },
           { thread_id: threadId, role: "assistant", content: response.message },

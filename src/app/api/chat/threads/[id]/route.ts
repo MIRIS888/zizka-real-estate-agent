@@ -16,7 +16,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
   const { data: threadData, error: threadError } = await client
     .from("chat_threads")
-    .select("*")
+    .select("id, user_id, title, created_at, updated_at")
     .eq("id", id)
     .single();
 
@@ -28,7 +28,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
   const { data: messagesData, error: messagesError } = await client
     .from("chat_messages")
-    .select("*")
+    .select("id, thread_id, role, content, created_at")
     .eq("thread_id", id)
     .order("created_at", { ascending: true });
 
