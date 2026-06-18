@@ -441,6 +441,7 @@ export function AgentChat() {
     tool: PendingTool;
   } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const loadedThreadIds = useRef<Set<string>>(new Set());
 
   const activeThread = threads.find((t) => t.id === activeThreadId);
   const activeMessages = activeThread?.messages ?? [];
@@ -472,8 +473,7 @@ export function AgentChat() {
   // Load messages when switching threads
   useEffect(() => {
     if (!activeThreadId) return;
-    const thread = threads.find((t) => t.id === activeThreadId);
-    if (!thread || thread.messages.length > 0) return; // already loaded
+    if (loadedThreadIds.current.has(activeThreadId)) return; // already fetched
     void (async () => {
       const res = await fetch(`/api/chat/threads/${activeThreadId}`);
       if (!res.ok) return;
@@ -481,6 +481,7 @@ export function AgentChat() {
         thread: ApiChatThread;
         messages: ApiChatMessage[];
       };
+      loadedThreadIds.current.add(activeThreadId);
       const messages: ChatMessage[] = data.messages.map((m) => {
         if (m.role === "user") {
           return { id: m.id, role: "user", content: m.content };
@@ -501,7 +502,7 @@ export function AgentChat() {
         ts.map((t) => (t.id === activeThreadId ? { ...t, messages } : t)),
       );
     })();
-  }, [activeThreadId, threads]);
+  }, [activeThreadId]);
 
   async function refreshGoogleStatus() {
     const res = await fetch("/api/auth/google/status");
@@ -530,7 +531,10 @@ export function AgentChat() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "Nová konverzace" }),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      setError("Nepodařilo se vytvořit novou konverzaci. Zkuste to znovu.");
+      return;
+    }
     const data = (await res.json()) as { thread: ApiChatThread };
     const newThread: UIThread = { ...data.thread, messages: [] };
     setThreads((ts) => [newThread, ...ts]);
@@ -554,7 +558,7 @@ export function AgentChat() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = message.trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || isLoading || !activeThreadId) return;
 
     setIsLoading(true);
     setError(null);
