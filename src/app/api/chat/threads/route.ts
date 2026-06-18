@@ -17,7 +17,7 @@ export async function GET() {
   const client = await createSupabaseAuthServerClient();
   const { data, error } = await client
     .from("chat_threads")
-    .select("*")
+    .select("id, user_id, title, created_at, updated_at")
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false })
     .limit(50);
