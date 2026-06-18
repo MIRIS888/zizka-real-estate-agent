@@ -166,16 +166,6 @@ export type ActiveMarketWatchRule = {
   recipientEmail: string | null;
 };
 
-function getCurrentHourInTimezone(timezone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hour: "numeric",
-    hour12: false,
-  }).formatToParts(new Date());
-  const hourPart = parts.find((p) => p.type === "hour");
-  return Number(hourPart?.value ?? 0) % 24;
-}
-
 function getCurrentIsoWeekday(timezone: string): number {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,

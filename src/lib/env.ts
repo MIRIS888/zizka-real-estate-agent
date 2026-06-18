@@ -44,6 +44,13 @@ export function getGeminiEnvironment() {
   return parsedEnvironment.data;
 }
 
+export function isGeminiConfigured() {
+  return ServerEnvironmentSchema.safeParse({
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    GEMINI_MODEL: process.env.GEMINI_MODEL,
+  }).success;
+}
+
 export function getSupabaseServerEnvironment() {
   const parsedEnvironment = SupabaseServerEnvironmentSchema.safeParse({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,

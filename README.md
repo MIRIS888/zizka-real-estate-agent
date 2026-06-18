@@ -1,189 +1,110 @@
-# Zizka Real Estate Operations Agent
+# Back Office Operations Agent
 
-An AI-assisted back-office application for real estate operations. The
-application uses Next.js for the user interface and API, Gemini for language
-model capabilities, Supabase for data and authentication, and n8n Cloud for
-scheduled workflows.
+Demo/MVP interního agenta pro realitní back office. Aplikace umí odpovídat nad firemními daty, vracet tabulky a grafy, připravit e-mail k prohlídce, najít chybějící data u nemovitostí, vytvořit týdenní report a založit ranní monitoring realitních serverů.
 
-## Local setup
+## Stack
 
-1. Install dependencies with `npm install`.
-2. Copy `.env.example` to `.env.local`.
-3. Add a Gemini API key.
-4. Run `npm run dev`.
+- Frontend: Next.js 16, React 19, TypeScript.
+- Backend: App Router API route `POST /api/agent`.
+- Data: lokální deterministická seed data v `src/lib/local-data/seed.ts`; Supabase je připravený jako produkční cesta.
+- Grafy: Recharts.
+- AI: všechny dotazy jdou přes nativní Gemini function calling; deterministický demo agent v repozitáři zůstává jen jako nepoužívaný referenční soubor.
 
-The dashboard is available without external credentials. Chat requests require
-`GEMINI_API_KEY`. By default, `DATA_SOURCE=local` uses in-memory seed data for
-lead analytics and property data-quality checks, so Supabase is not required for
-the first local test.
-
-Example local `.env.local`:
+## Lokální spuštění
 
 ```bash
-GEMINI_API_KEY=your-key
-GEMINI_MODEL=gemini-2.5-flash
+npm install
+cp .env.example .env.local
+npm run seed:local
+npm run dev
+```
+
+Otevři `http://localhost:3000`.
+
+Pro stabilní demo stačí:
+
+```bash
 DATA_SOURCE=local
-N8N_WEBHOOK_SECRET=replace-with-a-long-local-secret-value
-N8N_DAILY_REPORT_WEBHOOK_URL=https://<n8n-host>/webhook/daily-ops-report-chat
 ```
 
-Try these local chat prompts:
+`GEMINI_API_KEY` je povinný pro zpracování dotazů. Google, Supabase a Firecrawl jsou volitelné podle zapnutých integrací.
 
-- `Ukaž vývoj počtu leadů za posledních 6 měsíců.`
-- `Odkud přišli noví klienti za první kvartál?`
-- `Najdi nemovitosti, kde chybí data o rekonstrukci a stavebních úpravách.`
+## Env proměnné
 
-Demo prompts matching the assignment:
+- `DATA_SOURCE=local` používá seed data v repozitáři.
+- `DATA_SOURCE=supabase` používá Supabase tabulky, pokud jsou nastavené `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` a `DEFAULT_ORGANIZATION_ID`.
+- `GEMINI_API_KEY` je povinný pro Gemini function calling agenta.
+- `GOOGLE_CLIENT_ID` a `GOOGLE_CLIENT_SECRET` zapínají Google OAuth pro kalendář/Gmail.
+- `FIRECRAWL_API_KEY` zapíná live hledání realitních nabídek.
+- `CRON_SECRET` chrání cron endpointy.
 
-- `Jaké nové klienty máme za 1. kvartál? Odkud přišli? Můžeš to znázornit graficky?`
-- `Vytvoř graf vývoje počtu leadů a prodaných nemovitostí za posledních 6 měsíců.`
-- `Napiš e-mail pro zájemce o moji nemovitost a doporuč mu termín prohlídky na základě mé dostupnosti v kalendáři.`
-- `Najdi nemovitosti, u kterých nám v systému chybí data o rekonstrukci a stavebních úpravách a připrav jejich seznam k doplnění.`
-- `Shrň výsledky minulého týdne do krátkého reportu pro vedení a připrav k tomu prezentaci se třemi slidy.`
-- `Sleduj všechny hlavní realitní servery a každé ráno mě informuj o nových nabídkách v lokalitě Praha Holešovice.`
+## Demo scénáře
 
-## Architecture boundaries
+V UI jsou připravená tlačítka pro těchto šest promptů:
 
-- Next.js owns the user interface, authorization checks, and synchronous API.
-- Gemini selects from application-defined operations and produces structured
-  responses. It never receives unrestricted database access.
-- Supabase stores business data, workflow state, and audit records.
-- n8n Cloud runs schedules and external integration workflows through signed
-  webhooks.
+1. `Jaké nové klienty máme za 1. kvartál? Odkud přišli? Můžeš to znázornit graficky?`
+2. `Vytvoř graf vývoje počtu leadů a prodaných nemovitostí za posledních 6 měsíců.`
+3. `Napiš e-mail pro zájemce o moji nemovitost a doporuč mu termín prohlídky na základě mé dostupnosti v kalendáři.`
+4. `Najdi nemovitosti, u kterých nám v systému chybí data o rekonstrukci a stavebních úpravách a připrav jejich seznam k doplnění.`
+5. `Shrň výsledky minulého týdne do krátkého reportu pro vedení a připrav k tomu prezentaci se třemi slidy.`
+6. `Sleduj všechny hlavní realitní servery a každé ráno mě informuj o nových nabídkách v lokalitě Praha Holešovice.`
 
-## Lead intake webhook
+Výstupy obsahují kombinaci Markdown odpovědi, tabulek, grafů, návrhu e-mailu a sekce `Generated outputs` pro stažení CSV/Markdown/textu.
 
-External systems can create leads through:
+## Validace
 
-```text
-POST /api/webhooks/n8n/leads
-Authorization: Bearer <N8N_WEBHOOK_SECRET>
-Content-Type: application/json
+```bash
+npm run lint
+npm run typecheck
+npm run build
 ```
 
-Example payload:
+Pro endpoint validaci nejdřív spusť server a potom:
 
-```json
-{
-  "source": "email",
-  "contact": {
-    "fullName": "Jan Novak",
-    "email": "jan@example.com",
-    "phone": "+420777123456"
-  },
-  "message": "Dobry den, zajima me byt 3+kk v Praze.",
-  "propertyReference": "Praha 3, 3+kk",
-  "receivedAt": "2026-06-15T19:30:00.000Z"
-}
+```bash
+npm run validate:demo
 ```
 
-In local mode the webhook validates the payload but does not write to a
-database. Set `DATA_SOURCE=supabase` and configure Supabase environment
-variables to store leads in `clients` and `leads`.
+Pokud server běží jinde:
 
-## n8n scheduled workflows
-
-n8n should own timing, external connectors, retries, and delivery. The Next.js
-app should own validation, business state, and the chat/dashboard experience.
-
-Recommended workflows:
-
-- `Lead intake`: trigger from an n8n webhook or mailbox/parser workflow and
-  forward normalized leads to `POST /api/webhooks/n8n/leads`.
-- `Market digest`: run every workday at `07:30 Europe/Prague`, search the
-  watched real-estate sources for active rules, and send normalized listings to
-  `POST /api/webhooks/n8n/market-digest`.
-- `Daily ops report`: run every workday at `08:00 Europe/Prague` for the
-  previous business day, aggregate leads, viewings, sales, incomplete property
-  data, and market listings, then send the report to
-  `POST /api/webhooks/n8n/daily-report`.
-- `Daily ops report chat trigger`: expose an n8n webhook that the chat can call
-  through `N8N_DAILY_REPORT_WEBHOOK_URL`. The workflow should return
-  `{ "report": <daily report payload>, "stored": <app webhook result>, "email": <gmail result> }`.
-
-All n8n HTTP Request nodes should send:
-
-```text
-Authorization: Bearer <N8N_WEBHOOK_SECRET>
-Content-Type: application/json
+```bash
+DEMO_BASE_URL=http://127.0.0.1:3003 npm run validate:demo
 ```
 
-### Daily report webhook
+## Vercel deploy
 
-```text
-POST /api/webhooks/n8n/daily-report
-Authorization: Bearer <N8N_WEBHOOK_SECRET>
-Content-Type: application/json
-```
+1. Nastav projekt jako Next.js aplikaci.
+2. Build command: `npm run build`.
+3. Install command: `npm install`.
+4. Přidej env proměnné podle `.env.example`.
+5. Pro demo bez externích služeb stačí `DATA_SOURCE=local`.
+6. Pro produkční data nastav Supabase env proměnné a spusť migrace v `supabase/migrations`.
 
-Example payload:
+## Jak funguje agent
 
-```json
-{
-  "workflowId": "n8n-daily-ops-report",
-  "reportDate": "2026-06-16",
-  "timezone": "Europe/Prague",
-  "executedAt": "2026-06-16T06:00:00.000Z",
-  "summary": "Vcera prislo 6 novych leadu, probehly 2 prohlidky a 3 nemovitosti potrebuji doplnit technicka data.",
-  "metrics": {
-    "newLeads": 6,
-    "scheduledViewings": 2,
-    "soldProperties": 1,
-    "incompleteProperties": 3,
-    "newMarketListings": 4
-  },
-  "highlights": [
-    "Nejsilnejsi zdroj leadu byl Sreality.",
-    "Byt 3+kk Praha 7 ma dva nove zajemce."
-  ],
-  "risks": [
-    "U tri nemovitosti chybi udaje o rekonstrukci."
-  ],
-  "nextActions": [
-    "Doplnit stavebni upravy u aktivnich nemovitosti.",
-    "Potvrdit prohlidky s novymi zajemci."
-  ],
-  "delivery": {
-    "channel": "email",
-    "recipient": "vedeni@example.com",
-    "deliveredAt": "2026-06-16T06:02:00.000Z"
-  }
-}
-```
+`POST /api/agent` přijme zprávu a zavolá `runAgent`. Agent používá nativní Gemini function calling: Gemini může odpovědět rovnou textem nebo zavolat jednu či více deklarovaných funkcí. Server provede tool, vrátí výsledek jako `functionResponse` a Gemini pokračuje až do finální odpovědi. Pokud `GEMINI_API_KEY` není nastavený, agent vrátí jasnou českou chybu místo tichého fallbacku.
 
-In local mode the webhook validates the payload but does not write to a
-database. Set `DATA_SOURCE=supabase` and run the Supabase migrations to store
-daily report runs.
+## Mockované části
 
-## Live market search in chat
+- Lokální CRM/property dataset.
+- Dostupnost v kalendáři, pokud není připojen Google Calendar.
+- Uložení monitoring tasku v demo režimu.
+- Realitní nabídky pro Holešovice, pokud není nastaven Firecrawl.
 
-When a user asks for listings in a location, for example
-`Vyhledej nemovitosti v Holešovicích`, the agent selects the market-watch tool
-and runs a live Firecrawl Search query over the configured real-estate domains.
-The current domain registry covers the main Czech portals and agencies:
+Agent v odpovědích uvádí zdroj dat, aby bylo zřejmé, zda jde o lokální demo, live integraci nebo plánovanou integraci.
 
-- `sreality.cz`
-- `bezrealitky.cz`
-- `reality.idnes.cz`
-- `realitymix.cz`
-- `ceskereality.cz`
-- `ulovdomov.cz`
-- `eurobydleni.cz`
-- `realhit.cz`
-- `realitymorava.cz`
-- `realitycechy.cz`
-- `bidli.cz`
-- `remax-czech.cz`
-- `mmreality.cz`
-- `svoboda-williams.com`
-- `lexxus.cz`
-- `engelvoelkers.com`
+## Produkční rozšíření
 
-This is configured in `src/lib/tools/market-search.ts`. Add or remove domains
-there as the supported source list changes. Live search requires
-`FIRECRAWL_API_KEY`; without it, the chat explains that the integration is not
-configured.
+- Přesun dat do Supabase a zapnutí `DATA_SOURCE=supabase`.
+- Row-level security, role a audit log všech tool volání.
+- Google Calendar FreeBusy a Gmail draft/send s potvrzením uživatele.
+- Firecrawl Search plus n8n nebo Vercel cron pro ranní monitoring.
+- Skutečný export PPTX/PDF místo Markdown struktury slidů.
+- Testy nad API routou a nad agregacemi dat.
 
-For daily reports, n8n should run the same market search every morning, combine
-the results with internal data from Supabase, deliver the report by email or
-Slack, and store a normalized copy through `/api/webhooks/n8n/daily-report`.
+## Dokumentace pro předání
+
+- Audit: `docs/AUDIT.md`
+- Nastavení agenta: `docs/AGENT_SETUP.md`
+- Script pro video: `docs/DEMO_SCRIPT.md`
+- Poznámky pro navázání v Claude Code: `CLAUDE.md`, `STATUS.md`, `codex.md`

@@ -216,6 +216,31 @@ export async function deleteScheduledTask(id: string, userId: string): Promise<v
   if (error) throw new Error(`Nepodařilo se smazat úlohu: ${error.message}`);
 }
 
+// Used by the /tasks UI — returns all tasks (active + inactive) for a user
+export async function listAllScheduledTasks(userId: string): Promise<ScheduledTask[]> {
+  const supabase = createSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("scheduled_tasks")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(`Nepodařilo se načíst úlohy: ${error.message}`);
+  return (data ?? []).map((row) => ScheduledTaskRowSchema.parse(row));
+}
+
+// Toggles is_active without deleting the record
+export async function toggleScheduledTask(id: string, userId: string, isActive: boolean): Promise<void> {
+  const supabase = createSupabaseServiceClient();
+  const { error } = await supabase
+    .from("scheduled_tasks")
+    .update({ is_active: isActive, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", userId);
+
+  if (error) throw new Error(`Nepodařilo se změnit stav úlohy: ${error.message}`);
+}
+
 // Used by the cron runner — fetches all overdue tasks regardless of user
 export async function getDueScheduledTasks(): Promise<ScheduledTask[]> {
   const supabase = createSupabaseServiceClient();

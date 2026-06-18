@@ -56,6 +56,37 @@ export const ChatResponseSchema = z.object({
       }),
     ])
     .optional(),
+  artifacts: z
+    .array(
+      z.discriminatedUnion("type", [
+        z.object({
+          type: z.literal("table"),
+          title: z.string().min(1),
+          columns: z.array(z.string().min(1)).min(1),
+          rows: z.array(z.record(z.string(), z.string().or(z.number()))),
+        }),
+        z.object({
+          type: z.literal("chart"),
+          title: z.string().min(1),
+          xKey: z.string().min(1),
+          yKey: z.string().min(1).optional(),
+          yKeys: z.array(z.string().min(1)).min(1).optional(),
+          data: z.array(z.record(z.string(), z.string().or(z.number()))),
+        }),
+      ]),
+    )
+    .optional(),
+  generatedOutputs: z
+    .array(
+      z.object({
+        type: z.enum(["markdown", "csv", "presentation", "text"]),
+        title: z.string().min(1),
+        filename: z.string().min(1),
+        content: z.string().min(1),
+        mimeType: z.string().min(1),
+      }),
+    )
+    .optional(),
 });
 
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;

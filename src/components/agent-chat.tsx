@@ -4,7 +4,10 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   BarChart2,
   Building2,
+  Clipboard,
+  Clock,
   Database,
+  Download,
   ExternalLink,
   FileText,
   LoaderCircle,
@@ -17,6 +20,7 @@ import {
   Send,
   Sun,
 } from "lucide-react";
+import Link from "next/link";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
@@ -38,6 +42,7 @@ import {
 import { MarkdownMessage } from "@/components/markdown-message";
 
 type ResponseArtifact = NonNullable<ChatResponse["artifact"]>;
+type GeneratedOutput = NonNullable<ChatResponse["generatedOutputs"]>[number];
 type ResponseSource = NonNullable<ChatResponse["source"]>;
 type ChatMessage =
   | { id: string; role: "user"; content: string }
@@ -340,6 +345,53 @@ function ArtifactView({
   );
 }
 
+function downloadGeneratedOutput(output: GeneratedOutput) {
+  const blob = new Blob([output.content], { type: output.mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = output.filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function GeneratedOutputsView({ outputs }: { outputs: GeneratedOutput[] }) {
+  if (outputs.length === 0) return null;
+
+  return (
+    <div className="mt-4 rounded-xl border bg-[var(--surface)] px-4 py-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--foreground-muted)]">
+          Generated outputs
+        </p>
+        <span className="text-[10px] text-[var(--foreground-muted)]">
+          {outputs.length} souboru
+        </span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {outputs.map((output) => (
+          <button
+            key={`${output.filename}-${output.title}`}
+            type="button"
+            onClick={() => downloadGeneratedOutput(output)}
+            className="flex items-center gap-2 rounded-lg border bg-[var(--surface-muted)] px-3 py-2 text-left text-xs transition hover:border-[var(--primary)]/40"
+          >
+            <Download className="size-3.5 shrink-0 text-[var(--primary)]" />
+            <span className="min-w-0">
+              <span className="block truncate font-medium text-[var(--foreground)]">
+                {output.title}
+              </span>
+              <span className="block truncate text-[10px] text-[var(--foreground-muted)]">
+                {output.filename}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function EmailDraftView({
   draft,
 }: {
@@ -347,9 +399,19 @@ function EmailDraftView({
 }) {
   return (
     <div className="mt-4 rounded-xl border bg-[var(--surface)] px-5 py-4">
-      <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--foreground-muted)]">
-        Návrh e-mailu
-      </p>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--foreground-muted)]">
+          Návrh e-mailu
+        </p>
+        <button
+          type="button"
+          onClick={() => void navigator.clipboard.writeText(draft.body)}
+          className="flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-medium text-[var(--foreground-muted)] transition hover:border-[var(--primary)]/40 hover:text-[var(--foreground)]"
+        >
+          <Clipboard className="size-3" />
+          Kopírovat
+        </button>
+      </div>
       <p className="mb-0.5 text-xs text-[var(--foreground-muted)]">
         <span className="text-[var(--foreground-muted)]">Komu: </span>
         <span className="font-medium text-[var(--foreground)]">{draft.to}</span>
@@ -456,7 +518,7 @@ export function AgentChat() {
     setMessage("");
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -515,8 +577,19 @@ export function AgentChat() {
           </div>
         </div>
 
-        {/* New chat */}
-        <div className="p-2 pt-3">
+        {/* Navigation + New chat */}
+        <div className="p-2 pt-3 space-y-0.5">
+          <div className="flex w-full items-center gap-2.5 rounded-lg bg-[var(--surface)] px-3 py-2 text-xs font-medium text-[var(--foreground)] shadow-sm">
+            <MessageSquare className="size-3.5 shrink-0" />
+            Chat s agentem
+          </div>
+          <Link
+            href="/tasks"
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
+          >
+            <Clock className="size-3.5 shrink-0" />
+            Naplánované úlohy
+          </Link>
           <button
             type="button"
             onClick={handleNewChat}
@@ -682,10 +755,18 @@ export function AgentChat() {
                     {msg.response.emailDraft && (
                       <EmailDraftView draft={msg.response.emailDraft} />
                     )}
-                    {msg.response.artifact && (
+                    {(msg.response.artifacts ??
+                      (msg.response.artifact ? [msg.response.artifact] : [])
+                    ).map((artifact) => (
                       <ArtifactView
-                        artifact={msg.response.artifact}
+                        key={`${artifact.type}-${artifact.title}`}
+                        artifact={artifact}
                         intent={msg.response.intent}
+                      />
+                    ))}
+                    {msg.response.generatedOutputs && (
+                      <GeneratedOutputsView
+                        outputs={msg.response.generatedOutputs}
                       />
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">

@@ -306,20 +306,12 @@ function hasPendingConfirmation(history?: ChatHistoryItem[]) {
 }
 
 function isConsequentialAction(action: FunctionToolCall) {
-  if (
+  return (
     action.toolName === "send_email" ||
     action.toolName === "send_morning_report" ||
     action.toolName === "create_scheduled_task" ||
     action.toolName === "delete_scheduled_task"
-  ) {
-    return true;
-  }
-
-  if (action.toolName !== "watch_market") return false;
-
-  const parsed = WatchMarketInputSchema.safeParse(action.toolInput);
-
-  return parsed.success && parsed.data.mode === "schedule";
+  );
 }
 
 function userConfirmedPendingAction(userMessage: string, history?: ChatHistoryItem[]) {

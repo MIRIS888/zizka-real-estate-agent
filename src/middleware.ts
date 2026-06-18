@@ -2,6 +2,22 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const isPublicPath =
+    pathname === "/" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth/") ||
+    pathname === "/api/agent" ||
+    pathname === "/api/chat" ||
+    pathname === "/api/auth/google/status" ||
+    pathname.startsWith("/api/cron/") ||
+    pathname.startsWith("/api/webhooks/n8n/") ||
+    pathname.startsWith("/api/internal/n8n/");
+
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -28,14 +44,6 @@ export async function middleware(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
-  const isPublicPath =
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/auth/") ||
-    pathname.startsWith("/api/cron/") ||
-    pathname.startsWith("/api/webhooks/n8n/") ||
-    pathname.startsWith("/api/internal/n8n/");
 
   // On Vercel, request.nextUrl contains the internal localhost URL.
   // Use NEXT_PUBLIC_SITE_URL when available so redirects go to the public domain.

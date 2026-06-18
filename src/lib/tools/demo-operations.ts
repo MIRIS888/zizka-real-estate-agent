@@ -87,13 +87,20 @@ export async function createViewingEmailDraft(
   options?: { googleToken?: StoredGoogleToken | null },
 ) {
   const input = CreateEmailDraftInputSchema.parse(rawInput);
-  const availability = await findGoogleCalendarAvailability(options?.googleToken, {
-    dateRange: input.dateRange,
-    durationMinutes: input.durationMinutes,
-    timezone: input.timezone,
-  });
-  const calendarSlots = availability?.freeSlots ?? [];
   const propertyTitle = input.propertyTitle ?? "nabizenou nemovitost";
+
+  let availability = null;
+  try {
+    availability = await findGoogleCalendarAvailability(options?.googleToken, {
+      dateRange: input.dateRange,
+      durationMinutes: input.durationMinutes,
+      timezone: input.timezone,
+    });
+  } catch {
+    // treat as not connected
+  }
+
+  const calendarSlots = availability?.freeSlots ?? [];
 
   if (calendarSlots.length === 0) {
     return {
@@ -134,17 +141,21 @@ export async function findViewingSlots(
   options?: { googleToken?: StoredGoogleToken | null },
 ) {
   const input = FindCalendarSlotsInputSchema.parse(rawInput);
-  const availability = await findGoogleCalendarAvailability(
-    options?.googleToken,
-    input,
-  );
 
-  return {
-    busySlots: availability?.busySlots ?? [],
-    freeWindows: availability?.freeWindows ?? [],
-    slots: availability?.freeSlots ?? [],
-    source: availability ? "google_calendar" : "not_connected",
-  };
+  try {
+    const availability = await findGoogleCalendarAvailability(
+      options?.googleToken,
+      input,
+    );
+    return {
+      busySlots: availability?.busySlots ?? [],
+      freeWindows: availability?.freeWindows ?? [],
+      slots: availability?.freeSlots ?? [],
+      source: availability ? "google_calendar" : "not_connected",
+    };
+  } catch {
+    return { busySlots: [], freeWindows: [], slots: [], source: "not_connected" };
+  }
 }
 
 export function createWeeklyReport(rawInput: unknown) {
