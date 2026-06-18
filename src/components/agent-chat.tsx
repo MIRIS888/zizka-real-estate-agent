@@ -36,9 +36,13 @@ import {
 
 import {
   ChatResponseSchema,
+  PendingToolSchema,
   type ChatHistoryItem,
   type ChatResponse,
 } from "@/lib/contracts/chat";
+import { type z } from "zod";
+
+type PendingTool = z.infer<typeof PendingToolSchema>;
 import { MarkdownMessage } from "@/components/markdown-message";
 
 type ResponseArtifact = NonNullable<ChatResponse["artifact"]>;
@@ -484,6 +488,10 @@ export function AgentChat() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{
+    token: string;
+    tool: PendingTool;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeThread = threads.find((t) => t.id === activeThreadId);
@@ -533,6 +541,7 @@ export function AgentChat() {
     setActiveThreadId(thread.id);
     setMessage("");
     setError(null);
+    setPendingConfirmation(null);
   }
 
   async function handleDisconnectGoogle() {
@@ -567,13 +576,19 @@ export function AgentChat() {
     setMessage("");
 
     try {
+      const requestBody: Record<string, unknown> = {
+        message: trimmed,
+        history: buildHistory(activeThread?.messages ?? []),
+      };
+      if (pendingConfirmation) {
+        requestBody.confirmationToken = pendingConfirmation.token;
+        requestBody.pendingTool = pendingConfirmation.tool;
+      }
+
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: trimmed,
-          history: buildHistory(activeThread?.messages ?? []),
-        }),
+        body: JSON.stringify(requestBody),
       });
       const payload: unknown = await res.json();
 
@@ -589,6 +604,14 @@ export function AgentChat() {
       }
 
       const parsed = ChatResponseSchema.parse(payload);
+
+      // Update pending confirmation state from response
+      if (parsed.confirmationToken && parsed.pendingTool) {
+        setPendingConfirmation({ token: parsed.confirmationToken, tool: parsed.pendingTool });
+      } else if (!parsed.requiresConfirmation) {
+        setPendingConfirmation(null);
+      }
+
       updateActiveThread((t) => ({
         ...t,
         messages: [

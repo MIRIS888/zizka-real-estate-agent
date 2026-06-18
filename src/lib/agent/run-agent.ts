@@ -1,5 +1,10 @@
 import { type ChatResponse, type ChatHistoryItem } from "@/lib/contracts/chat";
 import {
+  generateConfirmationToken,
+  verifyConfirmationToken,
+  type PendingTool,
+} from "@/lib/agent/confirmation-token";
+import {
   CreateCalendarEventInputSchema,
   CreateEmailDraftInputSchema,
   CreateWeeklyReportInputSchema,
@@ -1791,6 +1796,8 @@ export async function runAgent(
     history?: ChatHistoryItem[];
     userEmail?: string;
     userId?: string;
+    confirmationToken?: string;
+    pendingTool?: PendingTool;
   },
 ): Promise<ChatResponse> {
   if (!isGeminiConfigured()) {
@@ -1916,22 +1923,35 @@ export async function runAgent(
         );
       }
 
-      if (
-        isConsequentialAction(action) &&
-        !userConfirmedPendingAction(userMessage, options?.history)
-      ) {
-        const latestExecution = getLatestExecution(executions);
-        const artifacts = getAllArtifacts(executions);
-
-        return {
-          intent: latestExecution?.response.intent ?? "general",
-          requiresConfirmation: true,
-          source: latestExecution?.response.source,
-          artifact: latestExecution?.response.artifact,
-          artifacts: artifacts.length > 0 ? artifacts : undefined,
-          emailDraft: latestExecution?.response.emailDraft,
-          message: buildConfirmationMessage(action),
+      if (isConsequentialAction(action)) {
+        const pendingTool: PendingTool = {
+          toolName: action.toolName,
+          payload: (action.toolInput ?? {}) as Record<string, unknown>,
         };
+        const isAuthorized = verifyConfirmationToken(
+          options?.confirmationToken,
+          options?.userId,
+          pendingTool,
+        );
+
+        if (!isAuthorized) {
+          const latestExecution = getLatestExecution(executions);
+          const artifacts = getAllArtifacts(executions);
+          const token = options?.userId
+            ? generateConfirmationToken(options.userId, pendingTool)
+            : null;
+
+          return {
+            intent: latestExecution?.response.intent ?? "general",
+            requiresConfirmation: true,
+            source: latestExecution?.response.source,
+            artifact: latestExecution?.response.artifact,
+            artifacts: artifacts.length > 0 ? artifacts : undefined,
+            emailDraft: latestExecution?.response.emailDraft,
+            message: buildConfirmationMessage(action),
+            ...(token ? { confirmationToken: token, pendingTool } : {}),
+          };
+        }
       }
 
       const execution = await executeToolAction(userMessage, action, {

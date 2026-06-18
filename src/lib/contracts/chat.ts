@@ -5,9 +5,16 @@ export const ChatHistoryItemSchema = z.object({
   content: z.string().min(1).max(8_000),
 });
 
+export const PendingToolSchema = z.object({
+  toolName: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()),
+});
+
 export const ChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4_000),
   history: z.array(ChatHistoryItemSchema).max(20).optional(),
+  confirmationToken: z.string().optional(),
+  pendingTool: PendingToolSchema.optional(),
 });
 
 export type ChatHistoryItem = z.infer<typeof ChatHistoryItemSchema>;
@@ -87,6 +94,8 @@ export const ChatResponseSchema = z.object({
       }),
     )
     .optional(),
+  confirmationToken: z.string().optional(),
+  pendingTool: PendingToolSchema.optional(),
 });
 
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
