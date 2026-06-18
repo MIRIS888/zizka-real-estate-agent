@@ -1,5 +1,6 @@
 import { type ChatResponse, type ChatHistoryItem } from "@/lib/contracts/chat";
 import {
+  CreateCalendarEventInputSchema,
   CreateEmailDraftInputSchema,
   CreateWeeklyReportInputSchema,
   FindCalendarSlotsInputSchema,
@@ -40,7 +41,12 @@ import { searchMarketListings } from "@/lib/tools/market-search";
 import { upsertMarketWatchRule } from "@/lib/tools/market-watch-schedule";
 import { buildMorningReport } from "@/lib/tools/morning-report";
 import { findIncompleteProperties } from "@/lib/tools/property-quality";
-import { sendGmailMessage, type StoredGoogleToken } from "@/lib/google/oauth";
+import {
+  createGoogleCalendarEvent,
+  hasCalendarWriteScope,
+  sendGmailMessage,
+  type StoredGoogleToken,
+} from "@/lib/google/oauth";
 import { type Content, type FunctionCall } from "@google/genai";
 
 const MAX_AGENT_ITERATIONS = 6;
@@ -62,6 +68,35 @@ type FunctionToolCall = {
 
 function formatDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
+}
+
+function formatCalendarTimeRange(startIso: string, endIso: string, tz: string): string {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const dateFmt = new Intl.DateTimeFormat("cs-CZ", {
+    timeZone: tz,
+    weekday: "short",
+    day: "numeric",
+    month: "numeric",
+  });
+  const timeFmt = new Intl.DateTimeFormat("cs-CZ", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${dateFmt.format(start)}, ${timeFmt.format(start)}–${timeFmt.format(end)}`;
+}
+
+function formatEventDateTime(isoString: string, tz: string): string {
+  return new Intl.DateTimeFormat("cs-CZ", {
+    timeZone: tz,
+    weekday: "long",
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(isoString));
 }
 
 function addDays(date: Date, days: number) {
@@ -256,6 +291,7 @@ function createFunctionToolCall(functionCall: FunctionCall): FunctionToolCall {
     "query_sales_metrics",
     "find_incomplete_properties",
     "find_calendar_slots",
+    "create_calendar_event",
     "create_email_draft",
     "send_email",
     "create_weekly_report",
@@ -314,6 +350,7 @@ function hasPendingConfirmation(history?: ChatHistoryItem[]) {
 const ALWAYS_CONSEQUENTIAL = new Set<string>([
   "send_email",
   "send_morning_report",
+  "create_calendar_event",
   "create_scheduled_task",
   "update_scheduled_task",
   "delete_scheduled_task",
@@ -400,6 +437,27 @@ function buildConfirmationMessage(action: FunctionToolCall) {
     const raw = action.toolInput as Record<string, unknown>;
     const desc = typeof raw.description === "string" ? raw.description : "tuto naplánovanou úlohu";
     return `Opravdu smazat: **${desc}**? Po smazání vám přestanou chodit automatické přehledy. Potvrďte prosím odpovědí ‘ano smaž’.`;
+  }
+
+  if (action.toolName === "create_calendar_event") {
+    const raw = action.toolInput as Record<string, unknown>;
+    const title = typeof raw.title === "string" ? raw.title : "Nová schůzka";
+    const tz = typeof raw.timezone === "string" ? raw.timezone : "Europe/Prague";
+    const start = typeof raw.startDateTime === "string" ? raw.startDateTime : "";
+    const end = typeof raw.endDateTime === "string" ? raw.endDateTime : "";
+    const location = typeof raw.location === "string" ? raw.location : null;
+    const attendeeName = typeof raw.attendeeName === "string" ? raw.attendeeName : null;
+    const lines = [
+      `**Název:** ${title}`,
+      start ? `**Začátek:** ${formatEventDateTime(start, tz)}` : null,
+      end ? `**Konec:** ${formatEventDateTime(end, tz)}` : null,
+      location ? `**Místo:** ${location}` : null,
+      attendeeName ? `**Účastník:** ${attendeeName}` : null,
+      `**Kalendář:** primární Google kalendář`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return `Mám vytvořit tuto událost v Google Kalendáři?\n\n${lines}\n\nPotvrďte prosím odpovědí ‘ano vytvoř’.`;
   }
 
   return "Tento krok má vedlejší efekt. Potvrďte prosím, že ho mám provést.";
@@ -641,26 +699,16 @@ async function executeToolAction(
       source: GOOGLE_CALENDAR_SOURCE,
       artifact: {
         type: "table",
-        title: "Google Calendar dostupnost",
-        columns: ["type", "term", "startsAt", "endsAt"],
+        title: "Dostupnost v Google Kalendáři",
+        columns: ["čas", "stav"],
         rows: [
-          ...result.busySlots.map((slot) => ({
-            type: "obsazeno",
-            term: slot.label,
-            startsAt: slot.startsAt,
-            endsAt: slot.endsAt,
+          ...result.slots.slice(0, 5).map((slot, i) => ({
+            čas: formatCalendarTimeRange(slot.startsAt, slot.endsAt, input.timezone),
+            stav: i === 0 ? "Volno — doporučeno" : "Volno — alternativa",
           })),
-          ...result.freeWindows.map((slot) => ({
-            type: "volno od-do",
-            term: `${slot.label} (${slot.durationMinutes} min)`,
-            startsAt: slot.startsAt,
-            endsAt: slot.endsAt,
-          })),
-          ...result.slots.map((slot) => ({
-            type: "volno",
-            term: slot.label,
-          startsAt: slot.startsAt,
-          endsAt: slot.endsAt,
+          ...result.busySlots.slice(0, 3).map((slot) => ({
+            čas: formatCalendarTimeRange(slot.startsAt, slot.endsAt, input.timezone),
+            stav: "Obsazeno",
           })),
         ],
       },
@@ -1153,6 +1201,138 @@ async function executeToolAction(
     };
   }
 
+  if (action.toolName === "create_calendar_event") {
+    if (!options?.googleToken) {
+      return {
+        toolName: action.toolName,
+        toolInput: action.toolInput,
+        result: { created: false, reason: "google_not_connected", isMock: false, isEmpty: true },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "calendar",
+          requiresConfirmation: false,
+          source: {
+            label: "Google účet není připojený",
+            detail: "Pro vytváření událostí v Google Kalendáři je potřeba nejdřív připojit Google účet.",
+            mode: "planned_integration",
+          },
+        },
+      };
+    }
+
+    if (!hasCalendarWriteScope(options.googleToken)) {
+      return {
+        toolName: action.toolName,
+        toolInput: action.toolInput,
+        result: { created: false, reason: "missing_write_scope", isMock: false, isEmpty: true },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "calendar",
+          requiresConfirmation: false,
+          source: {
+            label: "Nedostatečná oprávnění Google Calendar",
+            detail: "Google účet je připojený pouze pro čtení dostupnosti. Pro vytváření událostí je potřeba Google účet znovu připojit s oprávněním ke kalendáři.",
+            mode: "planned_integration",
+          },
+        },
+      };
+    }
+
+    const raw =
+      typeof action.toolInput === "object" && action.toolInput !== null
+        ? (action.toolInput as Record<string, unknown>)
+        : {};
+    const input = CreateCalendarEventInputSchema.parse(raw);
+    const tz = input.timezone;
+
+    // Backend guard: never create events in the past
+    const startDate = new Date(input.startDateTime);
+    if (startDate <= new Date()) {
+      return {
+        toolName: action.toolName,
+        toolInput: input,
+        result: { created: false, reason: "past_datetime", isMock: false, isEmpty: true },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "calendar",
+          requiresConfirmation: false,
+          source: {
+            label: "Termín v minulosti",
+            detail: "Nelze vytvořit událost v minulosti. Zkuste zadat budoucí termín.",
+            mode: "live",
+          },
+        },
+      };
+    }
+
+    let event;
+    try {
+      event = await createGoogleCalendarEvent(options.googleToken, {
+        title: input.title,
+        startDateTime: input.startDateTime,
+        endDateTime: input.endDateTime,
+        timezone: tz,
+        location: input.location,
+        description: input.description,
+        attendeeEmail: input.attendeeEmail,
+        calendarId: input.calendarId,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Neznámá chyba";
+      if (msg === "MISSING_WRITE_SCOPE" || msg.includes("MISSING_WRITE_SCOPE")) {
+        return {
+          toolName: action.toolName,
+          toolInput: input,
+          result: { created: false, reason: "missing_write_scope", isMock: false, isEmpty: true },
+          isMock: false,
+          isEmpty: true,
+          response: {
+            intent: "calendar",
+            requiresConfirmation: false,
+            source: {
+              label: "Nedostatečná oprávnění Google Calendar",
+              detail: "Google účet je připojený pouze pro čtení dostupnosti. Pro vytváření událostí je potřeba Google účet znovu připojit s oprávněním ke kalendáři.",
+              mode: "planned_integration",
+            },
+          },
+        };
+      }
+      throw err;
+    }
+
+    return {
+      toolName: action.toolName,
+      toolInput: input,
+      result: { event, isMock: false, isEmpty: false },
+      isMock: false,
+      isEmpty: false,
+      response: {
+        intent: "calendar",
+        requiresConfirmation: false,
+        source: {
+          label: "Google Calendar",
+          detail: "Událost byla vytvořena v primárním Google Kalendáři.",
+          mode: "live",
+        },
+        artifact: {
+          type: "table",
+          title: "Vytvořená událost",
+          columns: ["položka", "hodnota"],
+          rows: [
+            { položka: "Název", hodnota: event.title },
+            { položka: "Začátek", hodnota: event.startLocal },
+            { položka: "Konec", hodnota: event.endLocal },
+            ...(event.location ? [{ položka: "Místo", hodnota: event.location }] : []),
+            ...(event.htmlLink ? [{ položka: "Odkaz", hodnota: event.htmlLink }] : []),
+          ],
+        },
+      },
+    };
+  }
+
   throw new Error(`Unsupported agent tool: ${action.toolName}`);
 }
 
@@ -1193,10 +1373,27 @@ export async function runAgent(
     },
   ];
   const executions: ToolExecution[] = [];
+  const _now = new Date();
+  const _pragueTime = new Intl.DateTimeFormat("cs-CZ", {
+    timeZone: "Europe/Prague",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(_now);
+  const _tzOffset =
+    new Intl.DateTimeFormat("en", {
+      timeZone: "Europe/Prague",
+      timeZoneName: "shortOffset",
+    })
+      .formatToParts(_now)
+      .find((p) => p.type === "timeZoneName")?.value ?? "GMT+2";
+  // "GMT+2" → "+02:00", "GMT+1" → "+01:00"
+  const _isoOffset = _tzOffset.replace(/^GMT([+-])(\d+)$/, (_, sign, h) => `${sign}${h.padStart(2, "0")}:00`);
   const systemInstruction = [
     CONVERSATIONAL_SYSTEM_INSTRUCTION,
-    `Aktuální datum: ${new Date().toISOString().slice(0, 10)}.`,
+    `Aktuální datum: ${_now.toISOString().slice(0, 10)}.`,
+    `Aktuální čas (Europe/Prague): ${_pragueTime} (${_tzOffset}).`,
     `Google Calendar připojen: ${options?.googleToken ? "ano" : "ne"}.`,
+    `Pro vytváření kalendářových událostí: startDateTime/endDateTime musí být RFC3339 s UTC offsetem, např. "2026-06-18T14:00:00${_isoOffset}".`,
     "Pro relativní datumy počítej rozsahy z aktuálního data výše.",
   ].join("\n");
 

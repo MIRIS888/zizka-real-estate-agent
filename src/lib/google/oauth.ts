@@ -63,6 +63,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/calendar.freebusy",
   "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/gmail.compose",
   "https://www.googleapis.com/auth/gmail.send",
 ];
@@ -491,6 +492,114 @@ export async function findGoogleCalendarAvailability(
   }
 
   return { busySlots, freeWindows, freeSlots };
+}
+
+export function hasCalendarWriteScope(token: StoredGoogleToken): boolean {
+  const scopes = (token.scope ?? "").split(" ");
+  return (
+    scopes.includes("https://www.googleapis.com/auth/calendar") ||
+    scopes.includes("https://www.googleapis.com/auth/calendar.events")
+  );
+}
+
+export type GoogleCalendarEventInput = {
+  title: string;
+  startDateTime: string;
+  endDateTime: string;
+  timezone?: string;
+  location?: string;
+  description?: string;
+  attendeeEmail?: string;
+  calendarId?: string;
+};
+
+export type GoogleCalendarEventResult = {
+  id: string;
+  title: string;
+  startLocal: string;
+  endLocal: string;
+  timezone: string;
+  location?: string;
+  htmlLink?: string;
+  created: true;
+};
+
+export async function createGoogleCalendarEvent(
+  token: StoredGoogleToken,
+  input: GoogleCalendarEventInput,
+): Promise<GoogleCalendarEventResult> {
+  if (!hasCalendarWriteScope(token)) {
+    throw new Error("MISSING_WRITE_SCOPE");
+  }
+
+  const accessToken = await refreshAccessToken(token);
+  const calendarId = input.calendarId ?? "primary";
+  const timezone = input.timezone ?? "Europe/Prague";
+
+  const body: Record<string, unknown> = {
+    summary: input.title,
+    start: { dateTime: input.startDateTime, timeZone: timezone },
+    end: { dateTime: input.endDateTime, timeZone: timezone },
+  };
+
+  if (input.location) body.location = input.location;
+  if (input.description) body.description = input.description;
+  if (input.attendeeEmail) body.attendees = [{ email: input.attendeeEmail }];
+
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorPayload = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string; status?: string };
+    };
+    const msg = errorPayload.error?.message ?? `HTTP ${response.status}`;
+    const status = errorPayload.error?.status;
+    if (status === "PERMISSION_DENIED" || response.status === 403) {
+      throw new Error("MISSING_WRITE_SCOPE");
+    }
+    throw new Error(`Google Calendar: ${msg}`);
+  }
+
+  const event = (await response.json()) as {
+    id?: string;
+    summary?: string;
+    start?: { dateTime?: string };
+    end?: { dateTime?: string };
+    location?: string;
+    htmlLink?: string;
+  };
+
+  const fmtLocal = (dt?: string) => {
+    if (!dt) return "";
+    return new Intl.DateTimeFormat("cs-CZ", {
+      timeZone: timezone,
+      weekday: "long",
+      day: "numeric",
+      month: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(dt));
+  };
+
+  return {
+    id: event.id ?? "",
+    title: event.summary ?? input.title,
+    startLocal: fmtLocal(event.start?.dateTime),
+    endLocal: fmtLocal(event.end?.dateTime),
+    timezone,
+    location: event.location,
+    htmlLink: event.htmlLink,
+    created: true,
+  };
 }
 
 const GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";

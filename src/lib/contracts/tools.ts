@@ -91,12 +91,26 @@ export const DeleteScheduledTaskAgentInputSchema = z.object({
   description: z.string().optional(),
 });
 
+export const CreateCalendarEventInputSchema = z.object({
+  title: z.string().min(1).max(200),
+  startDateTime: z.string().min(1),
+  endDateTime: z.string().min(1),
+  timezone: z.string().min(1).default("Europe/Prague"),
+  location: z.string().max(300).optional(),
+  description: z.string().max(1000).optional(),
+  attendeeName: z.string().max(100).optional(),
+  attendeeEmail: z.email().optional(),
+  sendUpdates: z.enum(["all", "externalOnly", "none"]).default("none"),
+  calendarId: z.string().min(1).default("primary"),
+});
+
 export const AgentToolNameSchema = z.enum([
   "none",
   "query_lead_metrics",
   "query_sales_metrics",
   "find_incomplete_properties",
   "find_calendar_slots",
+  "create_calendar_event",
   "create_email_draft",
   "send_email",
   "create_weekly_report",
