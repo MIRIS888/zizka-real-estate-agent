@@ -90,6 +90,7 @@ export async function POST(request: Request) {
       userId: user?.id,
       confirmationToken,
       pendingTool,
+      threadId,
     });
 
     // Persist messages to DB after a successful agent response

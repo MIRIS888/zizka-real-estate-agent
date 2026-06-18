@@ -13,6 +13,7 @@ type TokenPayload = {
   toolName: string;
   payloadHash: string;
   exp: number;
+  threadId?: string;
 };
 
 function getHmacSecret(): string | null {
@@ -40,6 +41,7 @@ function hashPayload(secret: string, payload: Record<string, unknown>): string {
 export function generateConfirmationToken(
   userId: string,
   pending: PendingTool,
+  threadId?: string,
 ): string | null {
   const secret = getHmacSecret();
   if (!secret) return null;
@@ -50,6 +52,7 @@ export function generateConfirmationToken(
     toolName: pending.toolName,
     payloadHash: hashPayload(secret, pending.payload),
     exp,
+    ...(threadId ? { threadId } : {}),
   };
   const dataStr = JSON.stringify(data);
   const sig = createHmac(ALGORITHM, secret).update(dataStr).digest("hex");
@@ -60,6 +63,7 @@ export function verifyConfirmationToken(
   token: string | undefined | null,
   userId: string | undefined | null,
   pending: PendingTool,
+  threadId?: string,
 ): boolean {
   if (!token || !userId) return false;
   const secret = getHmacSecret();
@@ -77,6 +81,7 @@ export function verifyConfirmationToken(
     if (data.exp < Date.now()) return false;
     if (data.userId !== userId) return false;
     if (data.toolName !== pending.toolName) return false;
+    if (data.threadId && threadId && data.threadId !== threadId) return false;
 
     const expectedHash = hashPayload(secret, pending.payload);
     return data.payloadHash === expectedHash;
