@@ -55,7 +55,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && pathname === "/login") {
-    return NextResponse.redirect(new URL("/", siteUrl));
+    return NextResponse.redirect(new URL("/chat/new", siteUrl));
   }
 
   return supabaseResponse;

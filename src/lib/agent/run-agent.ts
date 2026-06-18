@@ -1896,6 +1896,7 @@ export async function runAgent(
     userId?: string;
     confirmationToken?: string;
     pendingTool?: PendingTool;
+    threadId?: string;
   },
 ): Promise<ChatResponse> {
   if (!isGeminiConfigured()) {
@@ -1925,6 +1926,7 @@ export async function runAgent(
       options.confirmationToken,
       options.userId ?? null,
       options.pendingTool,
+      options.threadId,
     );
 
     if (!isAuthorized) {
@@ -2070,13 +2072,14 @@ export async function runAgent(
           options?.confirmationToken,
           options?.userId,
           pendingTool,
+          options?.threadId,
         );
 
         if (!isAuthorized) {
           const latestExecution = getLatestExecution(executions);
           const artifacts = getAllArtifacts(executions);
           const token = options?.userId
-            ? generateConfirmationToken(options.userId, pendingTool)
+            ? generateConfirmationToken(options.userId, pendingTool, options.threadId)
             : null;
 
           return {

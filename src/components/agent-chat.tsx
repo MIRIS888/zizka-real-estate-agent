@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   BarChart2,
   Building2,
@@ -19,6 +20,7 @@ import {
   Radar,
   Send,
   Sun,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -37,7 +39,6 @@ import {
 import {
   ChatResponseSchema,
   PendingToolSchema,
-  type ChatHistoryItem,
   type ChatResponse,
 } from "@/lib/contracts/chat";
 import { type z } from "zod";
@@ -48,15 +49,15 @@ import { MarkdownMessage } from "@/components/markdown-message";
 type ResponseArtifact = NonNullable<ChatResponse["artifact"]>;
 type GeneratedOutput = NonNullable<ChatResponse["generatedOutputs"]>[number];
 type ResponseSource = NonNullable<ChatResponse["source"]>;
-type ChatMessage =
+
+type UIMessage =
   | { id: string; role: "user"; content: string }
   | { id: string; role: "assistant"; response: ChatResponse };
 
-type ChatThread = {
+type SidebarThread = {
   id: string;
   title: string;
-  createdAt: string;
-  messages: ChatMessage[];
+  updated_at: string;
 };
 
 type GoogleStatus = {
@@ -143,37 +144,6 @@ const QUICK_PROMPTS: QuickPrompt[] = [
 
 function createId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function createThread(): ChatThread {
-  return {
-    id: createId(),
-    title: "Nový dotaz",
-    createdAt: new Date().toLocaleDateString("cs-CZ", {
-      day: "2-digit",
-      month: "2-digit",
-    }),
-    messages: [],
-  };
-}
-
-function buildHistory(messages: ChatMessage[]): ChatHistoryItem[] {
-  return messages.slice(-16).map((msg) => {
-    if (msg.role === "user") {
-      return { role: "user" as const, content: msg.content };
-    }
-    let content = msg.response.message;
-    const draft = msg.response.emailDraft;
-    if (draft?.to) {
-      content += `\n\n[E-mail draft: Komu: ${draft.to}, Předmět: ${draft.subject}, Text: ${draft.body}]`;
-    }
-    return { role: "assistant" as const, content };
-  });
-}
-
-function createThreadTitle(message: string) {
-  const trimmed = message.trim();
-  return trimmed.length <= 44 ? trimmed : `${trimmed.slice(0, 41)}…`;
 }
 
 function MarketListingsView({ artifact }: { artifact: ResponseArtifact }) {
@@ -450,41 +420,17 @@ function useTheme() {
   return { dark, toggle };
 }
 
-const THREADS_STORAGE_KEY = "zizka_chat_threads";
-const ACTIVE_THREAD_STORAGE_KEY = "zizka_chat_active_thread";
-
-function loadThreadsFromStorage(): ChatThread[] {
-  if (typeof window === "undefined") return [createThread()];
-  try {
-    const raw = localStorage.getItem(THREADS_STORAGE_KEY);
-    if (!raw) return [createThread()];
-    const parsed = JSON.parse(raw) as ChatThread[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return [createThread()];
-    return parsed;
-  } catch {
-    return [createThread()];
-  }
-}
-
-function loadActiveThreadIdFromStorage(threads: ChatThread[]): string {
-  if (typeof window === "undefined") return threads[0].id;
-  try {
-    const saved = localStorage.getItem(ACTIVE_THREAD_STORAGE_KEY);
-    if (saved && threads.some((t) => t.id === saved)) return saved;
-  } catch {
-    // ignore
-  }
-  return threads[0].id;
-}
-
-export function AgentChat() {
+export function AgentChat({ initialThreadId }: { initialThreadId?: string } = {}) {
+  const router = useRouter();
   const { dark, toggle: toggleTheme } = useTheme();
   const [message, setMessage] = useState("");
-  const [threads, setThreads] = useState<ChatThread[]>(() => loadThreadsFromStorage());
-  const [activeThreadId, setActiveThreadId] = useState<string>(() => {
-    const t = loadThreadsFromStorage();
-    return loadActiveThreadIdFromStorage(t);
-  });
+  const [uiMessages, setUiMessages] = useState<UIMessage[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(
+    initialThreadId ?? null,
+  );
+  const [sidebarThreads, setSidebarThreads] = useState<SidebarThread[]>([]);
+  const [threadsLoading, setThreadsLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(!!initialThreadId);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
@@ -494,31 +440,85 @@ export function AgentChat() {
   } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const activeThread = threads.find((t) => t.id === activeThreadId);
-  const activeMessages = activeThread?.messages ?? [];
-
-  // Persist threads and active thread to localStorage on every change
+  // Load sidebar threads
   useEffect(() => {
-    try {
-      localStorage.setItem(THREADS_STORAGE_KEY, JSON.stringify(threads));
-    } catch {
-      // ignore quota errors
-    }
-  }, [threads]);
+    let mounted = true;
+    void fetch("/api/chat/threads")
+      .then((r) => r.json())
+      .then((data: { threads?: SidebarThread[] }) => {
+        if (mounted) {
+          setSidebarThreads(data.threads ?? []);
+          setThreadsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (mounted) setThreadsLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
+  // Load messages for the current thread on mount / when initialThreadId changes
   useEffect(() => {
-    try {
-      localStorage.setItem(ACTIVE_THREAD_STORAGE_KEY, activeThreadId);
-    } catch {
-      // ignore quota errors
+    if (!initialThreadId) {
+      return;
     }
-  }, [activeThreadId]);
+    let mounted = true;
+    void fetch(`/api/chat/threads/${initialThreadId}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Thread not found");
+        return r.json();
+      })
+      .then(
+        (data: {
+          messages?: { id: string; role: string; content: string }[];
+        }) => {
+          if (!mounted) return;
+          const mapped: UIMessage[] = (data.messages ?? []).flatMap((m): UIMessage[] => {
+            if (m.role === "user") {
+              return [{ id: m.id, role: "user" as const, content: m.content }];
+            }
+            if (m.role === "assistant") {
+              try {
+                const parsed = ChatResponseSchema.parse(
+                  JSON.parse(m.content) as unknown,
+                );
+                return [
+                  { id: m.id, role: "assistant" as const, response: parsed },
+                ];
+              } catch {
+                return [
+                  {
+                    id: m.id,
+                    role: "assistant" as const,
+                    response: {
+                      message: m.content,
+                      intent: "general" as const,
+                      requiresConfirmation: false,
+                    } as ChatResponse,
+                  },
+                ];
+              }
+            }
+            return [];
+          });
+          setUiMessages(mapped);
+          setMessagesLoading(false);
+        },
+      )
+      .catch(() => {
+        if (mounted) {
+          setMessagesLoading(false);
+          setError("Konverzaci se nepodařilo načíst.");
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [initialThreadId]);
 
-  async function refreshGoogleStatus() {
-    const res = await fetch("/api/auth/google/status");
-    setGoogleStatus((await res.json()) as GoogleStatus);
-  }
-
+  // Google status
   useEffect(() => {
     let mounted = true;
     void fetch("/api/auth/google/status")
@@ -531,28 +531,39 @@ export function AgentChat() {
     };
   }, []);
 
+  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeMessages.length, isLoading]);
+  }, [uiMessages.length, isLoading]);
+
+  function refreshSidebar() {
+    void fetch("/api/chat/threads")
+      .then((r) => r.json())
+      .then((data: { threads?: SidebarThread[] }) =>
+        setSidebarThreads(data.threads ?? []),
+      );
+  }
 
   function handleNewChat() {
-    const thread = createThread();
-    setThreads((ts) => [thread, ...ts]);
-    setActiveThreadId(thread.id);
-    setMessage("");
-    setError(null);
     setPendingConfirmation(null);
+    setError(null);
+    setMessage("");
+    router.push("/chat/new");
   }
 
   async function handleDisconnectGoogle() {
     await fetch("/api/auth/google/disconnect", { method: "POST" });
-    await refreshGoogleStatus();
+    const res = await fetch("/api/auth/google/status");
+    setGoogleStatus((await res.json()) as GoogleStatus);
   }
 
-  function updateActiveThread(updater: (t: ChatThread) => ChatThread) {
-    setThreads((ts) =>
-      ts.map((t) => (t.id === activeThreadId ? updater(t) : t)),
-    );
+  async function handleDeleteThread(threadId: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    await fetch(`/api/chat/threads/${threadId}`, { method: "DELETE" });
+    setSidebarThreads((ts) => ts.filter((t) => t.id !== threadId));
+    if (activeThreadId === threadId) {
+      router.push("/chat/new");
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -562,23 +573,18 @@ export function AgentChat() {
 
     setIsLoading(true);
     setError(null);
-    const userMsg: ChatMessage = {
-      id: createId(),
-      role: "user",
-      content: trimmed,
-    };
 
-    updateActiveThread((t) => ({
-      ...t,
-      title: t.messages.length === 0 ? createThreadTitle(trimmed) : t.title,
-      messages: [...t.messages, userMsg],
-    }));
+    const userMsgId = createId();
+    setUiMessages((prev) => [
+      ...prev,
+      { id: userMsgId, role: "user", content: trimmed },
+    ]);
     setMessage("");
 
     try {
       const requestBody: Record<string, unknown> = {
         message: trimmed,
-        history: buildHistory(activeThread?.messages ?? []),
+        ...(activeThreadId ? { threadId: activeThreadId } : {}),
       };
       if (pendingConfirmation) {
         requestBody.confirmationToken = pendingConfirmation.token;
@@ -604,29 +610,54 @@ export function AgentChat() {
       }
 
       const parsed = ChatResponseSchema.parse(payload);
+      const returnedThreadId =
+        typeof payload === "object" &&
+        payload !== null &&
+        "threadId" in payload &&
+        typeof (payload as { threadId?: unknown }).threadId === "string"
+          ? (payload as { threadId: string }).threadId
+          : null;
 
-      // Update pending confirmation state from response
       if (parsed.confirmationToken && parsed.pendingTool) {
-        setPendingConfirmation({ token: parsed.confirmationToken, tool: parsed.pendingTool });
+        setPendingConfirmation({
+          token: parsed.confirmationToken,
+          tool: parsed.pendingTool,
+        });
       } else if (!parsed.requiresConfirmation) {
         setPendingConfirmation(null);
       }
 
-      updateActiveThread((t) => ({
-        ...t,
-        messages: [
-          ...t.messages,
-          { id: createId(), role: "assistant", response: parsed },
-        ],
-      }));
+      setUiMessages((prev) => [
+        ...prev,
+        { id: createId(), role: "assistant", response: parsed },
+      ]);
+
+      if (!activeThreadId && returnedThreadId) {
+        // First message in new chat — navigate to the created thread
+        setActiveThreadId(returnedThreadId);
+        router.replace(`/chat/${returnedThreadId}`);
+        refreshSidebar();
+      } else if (activeThreadId) {
+        // Bump thread to top of sidebar
+        setSidebarThreads((ts) =>
+          ts
+            .map((t) =>
+              t.id === activeThreadId
+                ? { ...t, updated_at: new Date().toISOString() }
+                : t,
+            )
+            .sort(
+              (a, b) =>
+                new Date(b.updated_at).getTime() -
+                new Date(a.updated_at).getTime(),
+            ),
+        );
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Došlo k neočekávané chybě.",
       );
-      updateActiveThread((t) => ({
-        ...t,
-        messages: t.messages.filter((m) => m.id !== userMsg.id),
-      }));
+      setUiMessages((prev) => prev.filter((m) => m.id !== userMsgId));
     } finally {
       setIsLoading(false);
     }
@@ -674,36 +705,51 @@ export function AgentChat() {
 
         {/* Thread list */}
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          {threads.length > 0 && (
+          {!threadsLoading && sidebarThreads.length > 0 && (
             <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--foreground-muted)]">
               Historie
             </p>
           )}
           <div className="space-y-0.5">
-            {threads.map((thread) => (
-              <button
+            {sidebarThreads.map((thread) => (
+              <div
                 key={thread.id}
-                type="button"
-                onClick={() => {
-                  setActiveThreadId(thread.id);
-                  setError(null);
-                }}
-                className={`flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition ${
+                className={`group relative flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition ${
                   thread.id === activeThreadId
                     ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm"
                     : "text-[var(--foreground-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
                 }`}
               >
-                <MessageSquare className="mt-0.5 size-3.5 shrink-0 opacity-50" />
-                <span className="min-w-0">
-                  <span className="line-clamp-2 block font-medium leading-5">
-                    {thread.title}
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-start gap-2.5"
+                  onClick={() => {
+                    setError(null);
+                    router.push(`/chat/${thread.id}`);
+                  }}
+                >
+                  <MessageSquare className="mt-0.5 size-3.5 shrink-0 opacity-50" />
+                  <span className="min-w-0">
+                    <span className="line-clamp-2 block font-medium leading-5">
+                      {thread.title}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-[var(--foreground-muted)]">
+                      {new Date(thread.updated_at).toLocaleDateString("cs-CZ", {
+                        day: "2-digit",
+                        month: "2-digit",
+                      })}
+                    </span>
                   </span>
-                  <span className="mt-0.5 block text-[10px] text-[var(--foreground-muted)]">
-                    {thread.createdAt}
-                  </span>
-                </span>
-              </button>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => void handleDeleteThread(thread.id, e)}
+                  className="absolute right-2 top-2 hidden size-5 items-center justify-center rounded text-[var(--foreground-muted)] opacity-60 transition hover:opacity-100 group-hover:flex"
+                  aria-label="Smazat konverzaci"
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -775,15 +821,17 @@ export function AgentChat() {
         {/* Header */}
         <div className="flex h-14 shrink-0 items-center border-b px-6">
           <h1 className="truncate text-sm font-semibold text-[var(--foreground)]">
-            {activeThread?.messages.length === 0
-              ? "Chat"
-              : (activeThread?.title ?? "Chat")}
+            {sidebarThreads.find((t) => t.id === activeThreadId)?.title ?? "Chat"}
           </h1>
         </div>
 
         {/* Messages */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {activeMessages.length === 0 ? (
+          {messagesLoading ? (
+            <div className="flex h-full items-center justify-center">
+              <LoaderCircle className="size-6 animate-spin text-[var(--primary)]" />
+            </div>
+          ) : uiMessages.length === 0 ? (
             <div className="mx-auto flex h-full max-w-[700px] flex-col justify-center px-6 py-12">
               <p className="text-2xl font-semibold text-[var(--foreground)]">
                 Dobrý den, Pepo
@@ -814,7 +862,7 @@ export function AgentChat() {
             </div>
           ) : (
             <div className="mx-auto max-w-[700px] space-y-6 px-6 py-6">
-              {activeMessages.map((msg) =>
+              {uiMessages.map((msg) =>
                 msg.role === "user" ? (
                   <div key={msg.id} className="flex justify-end">
                     <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-[var(--primary)] px-4 py-3 text-sm leading-6 text-white">

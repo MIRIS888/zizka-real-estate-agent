@@ -15,6 +15,7 @@ export const ChatRequestSchema = z.object({
   history: z.array(ChatHistoryItemSchema).max(20).optional(),
   confirmationToken: z.string().optional(),
   pendingTool: PendingToolSchema.optional(),
+  threadId: z.string().uuid().optional(),
 });
 
 export type ChatHistoryItem = z.infer<typeof ChatHistoryItemSchema>;
@@ -96,7 +97,28 @@ export const ChatResponseSchema = z.object({
     .optional(),
   confirmationToken: z.string().optional(),
   pendingTool: PendingToolSchema.optional(),
+  threadId: z.string().uuid().optional(),
 });
 
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 export type ChatResponse = z.infer<typeof ChatResponseSchema>;
+
+// DB types
+export type ChatThread = {
+  id: string;
+  user_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+export type ChatMessage = {
+  id: string;
+  thread_id: string;
+  user_id: string;
+  role: "user" | "assistant";
+  content: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
