@@ -369,6 +369,15 @@ function isConfirmationMessage(userMessage: string) {
     "ok",
     "odešli",
     "odesli",
+    "smaž",
+    "smaz",
+    "zruš",
+    "zrus",
+    "uprav",
+    "vytvoř",
+    "vytvor",
+    "založ",
+    "zaloz",
   ].some((phrase) => normalized.includes(phrase));
 }
 
@@ -569,6 +578,62 @@ function buildFinishConfirmationMessage(userMessage: string, executions: ToolExe
   }
 
   return `Úkol vyžaduje potvrzení před pokračováním: ${userMessage}`;
+}
+
+function buildConfirmedActionMessage(
+  action: FunctionToolCall,
+  execution: ToolExecution,
+): string {
+  const raw =
+    typeof action.toolInput === "object" && action.toolInput !== null
+      ? (action.toolInput as Record<string, unknown>)
+      : {};
+
+  if (action.toolName === "delete_calendar_event") {
+    const title = typeof raw.eventTitle === "string" ? raw.eventTitle : "událost";
+    return execution.isEmpty
+      ? `Událost '${title}' se nepodařilo smazat.`
+      : `Hotovo, událost **${title}** byla smazána z Google Kalendáře.`;
+  }
+  if (action.toolName === "update_calendar_event") {
+    const title = typeof raw.eventTitle === "string" ? raw.eventTitle : "událost";
+    return execution.isEmpty
+      ? `Událost '${title}' se nepodařilo upravit.`
+      : `Hotovo, událost **${title}** byla upravena v Google Kalendáři.`;
+  }
+  if (action.toolName === "create_calendar_event") {
+    const title = typeof raw.title === "string" ? raw.title : "schůzka";
+    return execution.isEmpty
+      ? `Událost '${title}' se nepodařilo vytvořit.`
+      : `Hotovo, událost **${title}** byla přidána do Google Kalendáře.`;
+  }
+  if (action.toolName === "send_email") {
+    return execution.isEmpty ? "E-mail se nepodařilo odeslat." : "Hotovo, e-mail byl odeslán.";
+  }
+  if (action.toolName === "send_morning_report") {
+    return execution.isEmpty
+      ? "Ranní report se nepodařilo odeslat."
+      : "Hotovo, ranní report byl odeslán e-mailem.";
+  }
+  if (action.toolName === "create_scheduled_task") {
+    return execution.isEmpty
+      ? "Naplánovanou úlohu se nepodařilo vytvořit."
+      : "Hotovo, naplánovaná úloha byla vytvořena.";
+  }
+  if (action.toolName === "update_scheduled_task") {
+    return execution.isEmpty
+      ? "Naplánovanou úlohu se nepodařilo upravit."
+      : "Hotovo, naplánovaná úloha byla upravena.";
+  }
+  if (action.toolName === "delete_scheduled_task") {
+    return execution.isEmpty
+      ? "Naplánovanou úlohu se nepodařilo smazat."
+      : "Hotovo, naplánovaná úloha byla smazána.";
+  }
+  if (action.toolName === "watch_market") {
+    return "Hotovo, monitoring realitních nabídek byl nastaven.";
+  }
+  return "Hotovo.";
 }
 
 function createTextResponse(
@@ -1846,6 +1911,46 @@ export async function runAgent(
       message:
         "Gemini API klíč není nastavený, agent nemůže zpracovat dotaz.",
     };
+  }
+
+  // Fast path: user confirmed a pending action — execute directly, skip Gemini re-generation.
+  // Without this, Gemini would regenerate the same tool call with potentially different args,
+  // causing payloadHash mismatch → infinite confirmation loop.
+  if (
+    options?.confirmationToken &&
+    options?.pendingTool &&
+    isConfirmationMessage(userMessage)
+  ) {
+    const isAuthorized = verifyConfirmationToken(
+      options.confirmationToken,
+      options.userId ?? null,
+      options.pendingTool,
+    );
+
+    if (!isAuthorized) {
+      return {
+        intent: "general",
+        requiresConfirmation: false,
+        message:
+          "Potvrzení se nepodařilo ověřit — platnost mohla vypršet nebo byl změněn obsah akce. Zadejte akci znovu.",
+      };
+    }
+
+    const confirmedAction: FunctionToolCall = {
+      toolName: options.pendingTool.toolName as AgentToolName,
+      toolInput: options.pendingTool.payload,
+    };
+
+    const confirmedExecution = await executeToolAction(userMessage, confirmedAction, {
+      googleToken: options.googleToken,
+      userEmail: options.userEmail,
+      userId: options.userId,
+    });
+
+    return createTextResponse(
+      buildConfirmedActionMessage(confirmedAction, confirmedExecution),
+      [confirmedExecution],
+    );
   }
 
   const { client, model } = createGeminiClient();
