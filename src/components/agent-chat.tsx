@@ -36,9 +36,14 @@ import {
 
 import {
   ChatResponseSchema,
-  type ChatHistoryItem,
+  PendingToolSchema,
+  type ChatThread as ApiChatThread,
+  type ChatMessage as ApiChatMessage,
   type ChatResponse,
 } from "@/lib/contracts/chat";
+import { type z } from "zod";
+
+type PendingTool = z.infer<typeof PendingToolSchema>;
 import { MarkdownMessage } from "@/components/markdown-message";
 
 type ResponseArtifact = NonNullable<ChatResponse["artifact"]>;
@@ -48,10 +53,11 @@ type ChatMessage =
   | { id: string; role: "user"; content: string }
   | { id: string; role: "assistant"; response: ChatResponse };
 
-type ChatThread = {
+type UIThread = {
   id: string;
   title: string;
-  createdAt: string;
+  created_at: string;
+  updated_at: string;
   messages: ChatMessage[];
 };
 
@@ -139,32 +145,6 @@ const QUICK_PROMPTS: QuickPrompt[] = [
 
 function createId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function createThread(): ChatThread {
-  return {
-    id: createId(),
-    title: "Nový dotaz",
-    createdAt: new Date().toLocaleDateString("cs-CZ", {
-      day: "2-digit",
-      month: "2-digit",
-    }),
-    messages: [],
-  };
-}
-
-function buildHistory(messages: ChatMessage[]): ChatHistoryItem[] {
-  return messages.slice(-16).map((msg) => {
-    if (msg.role === "user") {
-      return { role: "user" as const, content: msg.content };
-    }
-    let content = msg.response.message;
-    const draft = msg.response.emailDraft;
-    if (draft?.to) {
-      content += `\n\n[E-mail draft: Komu: ${draft.to}, Předmět: ${draft.subject}, Text: ${draft.body}]`;
-    }
-    return { role: "assistant" as const, content };
-  });
 }
 
 function createThreadTitle(message: string) {
@@ -446,64 +426,82 @@ function useTheme() {
   return { dark, toggle };
 }
 
-const THREADS_STORAGE_KEY = "zizka_chat_threads";
-const ACTIVE_THREAD_STORAGE_KEY = "zizka_chat_active_thread";
-
-function loadThreadsFromStorage(): ChatThread[] {
-  if (typeof window === "undefined") return [createThread()];
-  try {
-    const raw = localStorage.getItem(THREADS_STORAGE_KEY);
-    if (!raw) return [createThread()];
-    const parsed = JSON.parse(raw) as ChatThread[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return [createThread()];
-    return parsed;
-  } catch {
-    return [createThread()];
-  }
-}
-
-function loadActiveThreadIdFromStorage(threads: ChatThread[]): string {
-  if (typeof window === "undefined") return threads[0].id;
-  try {
-    const saved = localStorage.getItem(ACTIVE_THREAD_STORAGE_KEY);
-    if (saved && threads.some((t) => t.id === saved)) return saved;
-  } catch {
-    // ignore
-  }
-  return threads[0].id;
-}
 
 export function AgentChat() {
   const { dark, toggle: toggleTheme } = useTheme();
   const [message, setMessage] = useState("");
-  const [threads, setThreads] = useState<ChatThread[]>(() => loadThreadsFromStorage());
-  const [activeThreadId, setActiveThreadId] = useState<string>(() => {
-    const t = loadThreadsFromStorage();
-    return loadActiveThreadIdFromStorage(t);
-  });
+  const [threads, setThreads] = useState<UIThread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [threadsLoading, setThreadsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<{
+    token: string;
+    tool: PendingTool;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const loadedThreadIds = useRef<Set<string>>(new Set());
 
   const activeThread = threads.find((t) => t.id === activeThreadId);
   const activeMessages = activeThread?.messages ?? [];
 
-  // Persist threads and active thread to localStorage on every change
+  // Load threads from API on mount
   useEffect(() => {
-    try {
-      localStorage.setItem(THREADS_STORAGE_KEY, JSON.stringify(threads));
-    } catch {
-      // ignore quota errors
-    }
-  }, [threads]);
+    let mounted = true;
+    void (async () => {
+      try {
+        const res = await fetch("/api/chat/threads");
+        if (!res.ok) return;
+        const data = (await res.json()) as { threads: ApiChatThread[] };
+        if (!mounted) return;
+        const uiThreads: UIThread[] = data.threads.map((t) => ({
+          ...t,
+          messages: [],
+        }));
+        setThreads(uiThreads);
+        if (uiThreads.length > 0) setActiveThreadId(uiThreads[0].id);
+      } finally {
+        if (mounted) setThreadsLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
+  // Load messages when switching threads
   useEffect(() => {
-    try {
-      localStorage.setItem(ACTIVE_THREAD_STORAGE_KEY, activeThreadId);
-    } catch {
-      // ignore quota errors
-    }
+    if (!activeThreadId) return;
+    if (loadedThreadIds.current.has(activeThreadId)) return; // already fetched
+    void (async () => {
+      const res = await fetch(`/api/chat/threads/${activeThreadId}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        thread: ApiChatThread;
+        messages: ApiChatMessage[];
+      };
+      loadedThreadIds.current.add(activeThreadId);
+      const messages: ChatMessage[] = data.messages.map((m) => {
+        if (m.role === "user") {
+          return { id: m.id, role: "user", content: m.content };
+        }
+        let response: ChatResponse;
+        try {
+          response = ChatResponseSchema.parse(JSON.parse(m.content));
+        } catch {
+          response = {
+            message: m.content,
+            intent: "general",
+            requiresConfirmation: false,
+          };
+        }
+        return { id: m.id, role: "assistant", response };
+      });
+      setThreads((ts) =>
+        ts.map((t) => (t.id === activeThreadId ? { ...t, messages } : t)),
+      );
+    })();
   }, [activeThreadId]);
 
   async function refreshGoogleStatus() {
@@ -527,12 +525,23 @@ export function AgentChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeMessages.length, isLoading]);
 
-  function handleNewChat() {
-    const thread = createThread();
-    setThreads((ts) => [thread, ...ts]);
-    setActiveThreadId(thread.id);
+  async function handleNewChat() {
+    const res = await fetch("/api/chat/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Nová konverzace" }),
+    });
+    if (!res.ok) {
+      setError("Nepodařilo se vytvořit novou konverzaci. Zkuste to znovu.");
+      return;
+    }
+    const data = (await res.json()) as { thread: ApiChatThread };
+    const newThread: UIThread = { ...data.thread, messages: [] };
+    setThreads((ts) => [newThread, ...ts]);
+    setActiveThreadId(newThread.id);
     setMessage("");
     setError(null);
+    setPendingConfirmation(null);
   }
 
   async function handleDisconnectGoogle() {
@@ -540,7 +549,7 @@ export function AgentChat() {
     await refreshGoogleStatus();
   }
 
-  function updateActiveThread(updater: (t: ChatThread) => ChatThread) {
+  function updateActiveThread(updater: (t: UIThread) => UIThread) {
     setThreads((ts) =>
       ts.map((t) => (t.id === activeThreadId ? updater(t) : t)),
     );
@@ -549,7 +558,7 @@ export function AgentChat() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = message.trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || isLoading || !activeThreadId) return;
 
     setIsLoading(true);
     setError(null);
@@ -567,13 +576,19 @@ export function AgentChat() {
     setMessage("");
 
     try {
+      const requestBody: Record<string, unknown> = {
+        message: trimmed,
+        threadId: activeThreadId,
+      };
+      if (pendingConfirmation) {
+        requestBody.confirmationToken = pendingConfirmation.token;
+        requestBody.pendingTool = pendingConfirmation.tool;
+      }
+
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: trimmed,
-          history: buildHistory(activeThread?.messages ?? []),
-        }),
+        body: JSON.stringify(requestBody),
       });
       const payload: unknown = await res.json();
 
@@ -589,6 +604,14 @@ export function AgentChat() {
       }
 
       const parsed = ChatResponseSchema.parse(payload);
+
+      // Update pending confirmation state from response
+      if (parsed.confirmationToken && parsed.pendingTool) {
+        setPendingConfirmation({ token: parsed.confirmationToken, tool: parsed.pendingTool });
+      } else if (!parsed.requiresConfirmation) {
+        setPendingConfirmation(null);
+      }
+
       updateActiveThread((t) => ({
         ...t,
         messages: [
@@ -596,6 +619,14 @@ export function AgentChat() {
           { id: createId(), role: "assistant", response: parsed },
         ],
       }));
+
+      // Bump thread to top of list (most recently updated)
+      setThreads((ts) => {
+        const idx = ts.findIndex((t) => t.id === activeThreadId);
+        if (idx <= 0) return ts;
+        const updated = { ...ts[idx], updated_at: new Date().toISOString() };
+        return [updated, ...ts.slice(0, idx), ...ts.slice(idx + 1)];
+      });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Došlo k neočekávané chybě.",
@@ -641,7 +672,7 @@ export function AgentChat() {
           </Link>
           <button
             type="button"
-            onClick={handleNewChat}
+            onClick={() => void handleNewChat()}
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-[var(--foreground-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
           >
             <Plus className="size-3.5 shrink-0" />
@@ -651,38 +682,51 @@ export function AgentChat() {
 
         {/* Thread list */}
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-          {threads.length > 0 && (
-            <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--foreground-muted)]">
-              Historie
+          {threadsLoading ? (
+            <p className="px-3 pb-1 pt-3 text-[10px] text-[var(--foreground-muted)]">
+              Načítání…
             </p>
+          ) : threads.length === 0 ? (
+            <p className="px-3 pb-1 pt-3 text-[10px] text-[var(--foreground-muted)]">
+              Žádné konverzace
+            </p>
+          ) : (
+            <>
+              <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--foreground-muted)]">
+                Historie
+              </p>
+              <div className="space-y-0.5">
+                {threads.map((thread) => (
+                  <button
+                    key={thread.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveThreadId(thread.id);
+                      setError(null);
+                    }}
+                    className={`flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition ${
+                      thread.id === activeThreadId
+                        ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm"
+                        : "text-[var(--foreground-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    <MessageSquare className="mt-0.5 size-3.5 shrink-0 opacity-50" />
+                    <span className="min-w-0">
+                      <span className="line-clamp-2 block font-medium leading-5">
+                        {thread.title}
+                      </span>
+                      <span className="mt-0.5 block text-[10px] text-[var(--foreground-muted)]">
+                        {new Date(thread.created_at).toLocaleDateString("cs-CZ", {
+                          day: "2-digit",
+                          month: "2-digit",
+                        })}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
-          <div className="space-y-0.5">
-            {threads.map((thread) => (
-              <button
-                key={thread.id}
-                type="button"
-                onClick={() => {
-                  setActiveThreadId(thread.id);
-                  setError(null);
-                }}
-                className={`flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition ${
-                  thread.id === activeThreadId
-                    ? "bg-[var(--surface)] text-[var(--foreground)] shadow-sm"
-                    : "text-[var(--foreground-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--foreground)]"
-                }`}
-              >
-                <MessageSquare className="mt-0.5 size-3.5 shrink-0 opacity-50" />
-                <span className="min-w-0">
-                  <span className="line-clamp-2 block font-medium leading-5">
-                    {thread.title}
-                  </span>
-                  <span className="mt-0.5 block text-[10px] text-[var(--foreground-muted)]">
-                    {thread.createdAt}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Sidebar footer */}

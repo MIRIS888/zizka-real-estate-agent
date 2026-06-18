@@ -1,8 +1,14 @@
 import { type ChatResponse, type ChatHistoryItem } from "@/lib/contracts/chat";
 import {
+  generateConfirmationToken,
+  verifyConfirmationToken,
+  type PendingTool,
+} from "@/lib/agent/confirmation-token";
+import {
   CreateCalendarEventInputSchema,
   CreateEmailDraftInputSchema,
   CreateWeeklyReportInputSchema,
+  FindCalendarEventsInputSchema,
   FindCalendarSlotsInputSchema,
   FindIncompletePropertiesInputSchema,
   QueryLeadMetricsInputSchema,
@@ -11,6 +17,8 @@ import {
   SendEmailInputSchema,
   WatchMarketInputSchema,
   CreateScheduledTaskAgentInputSchema,
+  UpdateCalendarEventInputSchema,
+  DeleteCalendarEventInputSchema,
   UpdateScheduledTaskAgentInputSchema,
   DeleteScheduledTaskAgentInputSchema,
   type AgentToolName,
@@ -44,8 +52,11 @@ import { buildMorningReport } from "@/lib/tools/morning-report";
 import { findIncompleteProperties } from "@/lib/tools/property-quality";
 import {
   createGoogleCalendarEvent,
+  deleteGoogleCalendarEvent,
+  findGoogleCalendarEvents,
   hasCalendarWriteScope,
   sendGmailMessage,
+  updateGoogleCalendarEvent,
   type StoredGoogleToken,
 } from "@/lib/google/oauth";
 import { type Content, type FunctionCall } from "@google/genai";
@@ -316,7 +327,10 @@ function createFunctionToolCall(functionCall: FunctionCall): FunctionToolCall {
     "query_sales_metrics",
     "find_incomplete_properties",
     "find_calendar_slots",
+    "find_calendar_events",
     "create_calendar_event",
+    "update_calendar_event",
+    "delete_calendar_event",
     "create_email_draft",
     "send_email",
     "create_weekly_report",
@@ -376,6 +390,8 @@ const ALWAYS_CONSEQUENTIAL = new Set<string>([
   "send_email",
   "send_morning_report",
   "create_calendar_event",
+  "update_calendar_event",
+  "delete_calendar_event",
   "create_scheduled_task",
   "update_scheduled_task",
   "delete_scheduled_task",
@@ -483,6 +499,32 @@ function buildConfirmationMessage(action: FunctionToolCall) {
       .filter(Boolean)
       .join("\n");
     return `Mám vytvořit tuto událost v Google Kalendáři?\n\n${lines}\n\nPotvrďte prosím odpovědí ‘ano vytvoř’.`;
+  }
+
+  if (action.toolName === "update_calendar_event") {
+    const raw = action.toolInput as Record<string, unknown>;
+    const tz = typeof raw.timezone === "string" ? raw.timezone : "Europe/Prague";
+    const eventTitle = typeof raw.eventTitle === "string" ? raw.eventTitle : "Událost";
+    const newStart = typeof raw.startDateTime === "string" ? raw.startDateTime : null;
+    const newEnd = typeof raw.endDateTime === "string" ? raw.endDateTime : null;
+    const newTitle = typeof raw.title === "string" ? raw.title : null;
+    const newLocation = typeof raw.location === "string" ? raw.location : null;
+    const lines = [
+      `**Událost:** ${eventTitle}`,
+      newTitle ? `**Nový název:** ${newTitle}` : null,
+      newStart ? `**Nový začátek:** ${formatEventDateTime(newStart, tz)}` : null,
+      newEnd ? `**Nový konec:** ${formatEventDateTime(newEnd, tz)}` : null,
+      newLocation !== null ? `**Nové místo:** ${newLocation || "(bez místa)"}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return `Mám upravit tuto událost v Google Kalendáři?\n\n${lines}\n\nPotvrďte prosím odpovědí ‘ano uprav’.`;
+  }
+
+  if (action.toolName === "delete_calendar_event") {
+    const raw = action.toolInput as Record<string, unknown>;
+    const eventTitle = typeof raw.eventTitle === "string" ? raw.eventTitle : "tuto událost";
+    return `Opravdu smazat: **${eventTitle}**? Tato akce je nevratná a nelze ji vrátit zpět.\n\nPotvrďte prosím odpovědí ‘ano smaž’.`;
   }
 
   return "Tento krok má vedlejší efekt. Potvrďte prosím, že ho mám provést.";
@@ -1249,6 +1291,369 @@ async function executeToolAction(
     };
   }
 
+  if (action.toolName === "find_calendar_events") {
+    if (!options?.googleToken) {
+      return {
+        toolName: action.toolName,
+        toolInput: action.toolInput,
+        result: { events: [], isEmpty: true, isMock: false },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "calendar",
+          requiresConfirmation: false,
+          source: {
+            label: "Google účet není připojený",
+            detail: "Pro čtení událostí z Google Kalendáře je potřeba připojit Google účet.",
+            mode: "planned_integration",
+          },
+        },
+      };
+    }
+
+    const rawInput =
+      typeof action.toolInput === "object" && action.toolInput !== null
+        ? (action.toolInput as Record<string, unknown>)
+        : {};
+
+    // Infer dateRange from user message if Gemini didn't provide one
+    const hasDateRange =
+      typeof (rawInput.dateRange as Record<string, unknown> | undefined)?.start === "string";
+    const inferredRange = hasDateRange ? null : inferDateRangeFromMessage(userMessage);
+    const input = FindCalendarEventsInputSchema.parse({
+      timezone: "Europe/Prague",
+      maxResults: 10,
+      ...rawInput,
+      ...(inferredRange && !hasDateRange
+        ? { dateRange: { start: inferredRange.from, end: inferredRange.to } }
+        : {}),
+    });
+
+    let findResult: Awaited<ReturnType<typeof findGoogleCalendarEvents>>;
+    try {
+      findResult = await findGoogleCalendarEvents(options.googleToken, input);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Neznámá chyba";
+      if (msg === "MISSING_READ_SCOPE") {
+        return {
+          toolName: action.toolName,
+          toolInput: input,
+          result: { events: [], isEmpty: true, isMock: false },
+          isMock: false,
+          isEmpty: true,
+          response: {
+            intent: "calendar",
+            requiresConfirmation: false,
+            source: {
+              label: "Nedostatečná oprávnění Google Calendar",
+              detail:
+                "Pro čtení událostí je potřeba Google účet znovu připojit s oprávněním ke kalendáři.",
+              mode: "planned_integration",
+            },
+          },
+        };
+      }
+      throw err;
+    }
+
+    return {
+      toolName: action.toolName,
+      toolInput: input,
+      result: findResult,
+      isMock: false,
+      isEmpty: findResult.isEmpty,
+      response: {
+        intent: "calendar",
+        requiresConfirmation: false,
+        source: {
+          label: "Google Calendar",
+          detail: "Události načtené z Google Kalendáře.",
+          mode: "live",
+        },
+        artifact:
+          findResult.events.length > 0
+            ? {
+                type: "table",
+                title: "Události v kalendáři",
+                columns: ["Název", "Kdy", "Kde"],
+                rows: findResult.events.map((ev) => ({
+                  Název: ev.title,
+                  Kdy: `${ev.dateLabel}, ${ev.timeLabel}`,
+                  Kde: ev.location ?? "",
+                })),
+              }
+            : undefined,
+      },
+    };
+  }
+
+  if (action.toolName === "update_calendar_event") {
+    if (!options?.googleToken) {
+      return {
+        toolName: action.toolName,
+        toolInput: action.toolInput,
+        result: { updated: false, reason: "google_not_connected", isMock: false, isEmpty: true },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "calendar",
+          requiresConfirmation: false,
+          source: {
+            label: "Google účet není připojený",
+            detail: "Pro úpravu událostí v Google Kalendáři je potřeba připojit Google účet.",
+            mode: "planned_integration",
+          },
+        },
+      };
+    }
+
+    if (!hasCalendarWriteScope(options.googleToken)) {
+      return {
+        toolName: action.toolName,
+        toolInput: action.toolInput,
+        result: { updated: false, reason: "missing_write_scope", isMock: false, isEmpty: true },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "calendar",
+          requiresConfirmation: false,
+          source: {
+            label: "Nedostatečná oprávnění Google Calendar",
+            detail:
+              "Google účet je připojený pouze pro čtení. Pro úpravy je potřeba Google účet znovu připojit s oprávněním ke kalendáři.",
+            mode: "planned_integration",
+          },
+        },
+      };
+    }
+
+    const rawUpdate =
+      typeof action.toolInput === "object" && action.toolInput !== null
+        ? (action.toolInput as Record<string, unknown>)
+        : {};
+    const updateInput = UpdateCalendarEventInputSchema.parse(rawUpdate);
+
+    // Backend guard: refuse if new start time is in the past
+    if (updateInput.startDateTime) {
+      const newStart = new Date(updateInput.startDateTime);
+      if (newStart <= new Date()) {
+        return {
+          toolName: action.toolName,
+          toolInput: updateInput,
+          result: { updated: false, reason: "past_datetime", isMock: false, isEmpty: true },
+          isMock: false,
+          isEmpty: true,
+          response: {
+            intent: "calendar",
+            requiresConfirmation: false,
+            source: {
+              label: "Termín v minulosti",
+              detail: "Nelze přesunout událost do minulosti. Zadejte budoucí termín.",
+              mode: "live",
+            },
+          },
+        };
+      }
+    }
+
+    let updatedEvent: Awaited<ReturnType<typeof updateGoogleCalendarEvent>>;
+    try {
+      updatedEvent = await updateGoogleCalendarEvent(options.googleToken, updateInput);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Neznámá chyba";
+      if (msg === "MISSING_WRITE_SCOPE") {
+        return {
+          toolName: action.toolName,
+          toolInput: updateInput,
+          result: { updated: false, reason: "missing_write_scope", isMock: false, isEmpty: true },
+          isMock: false,
+          isEmpty: true,
+          response: {
+            intent: "calendar",
+            requiresConfirmation: false,
+            source: {
+              label: "Nedostatečná oprávnění Google Calendar",
+              detail:
+                "Pro úpravy událostí je potřeba Google účet znovu připojit s oprávněním ke kalendáři.",
+              mode: "planned_integration",
+            },
+          },
+        };
+      }
+      if (msg === "EVENT_NOT_FOUND") {
+        return {
+          toolName: action.toolName,
+          toolInput: updateInput,
+          result: { updated: false, reason: "event_not_found", isMock: false, isEmpty: true },
+          isMock: false,
+          isEmpty: true,
+          response: {
+            intent: "calendar",
+            requiresConfirmation: false,
+            source: {
+              label: "Událost nenalezena",
+              detail: "Událost s tímto ID nebyla nalezena v Google Kalendáři.",
+              mode: "live",
+            },
+          },
+        };
+      }
+      throw err;
+    }
+
+    return {
+      toolName: action.toolName,
+      toolInput: updateInput,
+      result: { event: updatedEvent, updated: true, isMock: false, isEmpty: false },
+      isMock: false,
+      isEmpty: false,
+      response: {
+        intent: "calendar",
+        requiresConfirmation: false,
+        source: {
+          label: "Google Calendar",
+          detail: "Událost byla upravena v Google Kalendáři.",
+          mode: "live",
+        },
+        artifact: {
+          type: "table",
+          title: "Upravená událost",
+          columns: ["položka", "hodnota"],
+          rows: [
+            { položka: "Název", hodnota: updatedEvent.title },
+            { položka: "Začátek", hodnota: updatedEvent.startLocal },
+            { položka: "Konec", hodnota: updatedEvent.endLocal },
+            ...(updatedEvent.location
+              ? [{ položka: "Místo", hodnota: updatedEvent.location }]
+              : []),
+            ...(updatedEvent.htmlLink
+              ? [{ položka: "Odkaz", hodnota: updatedEvent.htmlLink }]
+              : []),
+          ],
+        },
+      },
+    };
+  }
+
+  if (action.toolName === "delete_calendar_event") {
+    if (!options?.googleToken) {
+      return {
+        toolName: action.toolName,
+        toolInput: action.toolInput,
+        result: { deleted: false, reason: "google_not_connected", isMock: false, isEmpty: true },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "calendar",
+          requiresConfirmation: false,
+          source: {
+            label: "Google účet není připojený",
+            detail: "Pro mazání událostí v Google Kalendáři je potřeba připojit Google účet.",
+            mode: "planned_integration",
+          },
+        },
+      };
+    }
+
+    if (!hasCalendarWriteScope(options.googleToken)) {
+      return {
+        toolName: action.toolName,
+        toolInput: action.toolInput,
+        result: { deleted: false, reason: "missing_write_scope", isMock: false, isEmpty: true },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "calendar",
+          requiresConfirmation: false,
+          source: {
+            label: "Nedostatečná oprávnění Google Calendar",
+            detail:
+              "Google účet je připojený pouze pro čtení. Pro mazání je potřeba Google účet znovu připojit s oprávněním ke kalendáři.",
+            mode: "planned_integration",
+          },
+        },
+      };
+    }
+
+    const rawDelete =
+      typeof action.toolInput === "object" && action.toolInput !== null
+        ? (action.toolInput as Record<string, unknown>)
+        : {};
+    const deleteInput = DeleteCalendarEventInputSchema.parse(rawDelete);
+    const deletedTitle =
+      typeof rawDelete.eventTitle === "string" ? rawDelete.eventTitle : "Událost";
+
+    try {
+      await deleteGoogleCalendarEvent(options.googleToken, deleteInput);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Neznámá chyba";
+      if (msg === "MISSING_WRITE_SCOPE") {
+        return {
+          toolName: action.toolName,
+          toolInput: deleteInput,
+          result: { deleted: false, reason: "missing_write_scope", isMock: false, isEmpty: true },
+          isMock: false,
+          isEmpty: true,
+          response: {
+            intent: "calendar",
+            requiresConfirmation: false,
+            source: {
+              label: "Nedostatečná oprávnění Google Calendar",
+              detail:
+                "Pro mazání událostí je potřeba Google účet znovu připojit s oprávněním ke kalendáři.",
+              mode: "planned_integration",
+            },
+          },
+        };
+      }
+      if (msg === "EVENT_NOT_FOUND") {
+        return {
+          toolName: action.toolName,
+          toolInput: deleteInput,
+          result: { deleted: false, reason: "event_not_found", isMock: false, isEmpty: true },
+          isMock: false,
+          isEmpty: true,
+          response: {
+            intent: "calendar",
+            requiresConfirmation: false,
+            source: {
+              label: "Událost nenalezena",
+              detail: "Událost s tímto ID nebyla nalezena v Google Kalendáři.",
+              mode: "live",
+            },
+          },
+        };
+      }
+      throw err;
+    }
+
+    return {
+      toolName: action.toolName,
+      toolInput: deleteInput,
+      result: { deleted: true, id: deleteInput.eventId, isMock: false, isEmpty: false },
+      isMock: false,
+      isEmpty: false,
+      response: {
+        intent: "calendar",
+        requiresConfirmation: false,
+        source: {
+          label: "Google Calendar",
+          detail: `Událost '${deletedTitle}' byla smazána z Google Kalendáře.`,
+          mode: "live",
+        },
+        artifact: {
+          type: "table",
+          title: "Smazaná událost",
+          columns: ["položka", "hodnota"],
+          rows: [
+            { položka: "Název", hodnota: deletedTitle },
+            { položka: "Stav", hodnota: "Smazáno" },
+          ],
+        },
+      },
+    };
+  }
+
   if (action.toolName === "create_calendar_event") {
     if (!options?.googleToken) {
       return {
@@ -1391,6 +1796,9 @@ export async function runAgent(
     history?: ChatHistoryItem[];
     userEmail?: string;
     userId?: string;
+    confirmationToken?: string;
+    pendingTool?: PendingTool;
+    threadId?: string;
   },
 ): Promise<ChatResponse> {
   if (!isGeminiConfigured()) {
@@ -1516,22 +1924,36 @@ export async function runAgent(
         );
       }
 
-      if (
-        isConsequentialAction(action) &&
-        !userConfirmedPendingAction(userMessage, options?.history)
-      ) {
-        const latestExecution = getLatestExecution(executions);
-        const artifacts = getAllArtifacts(executions);
-
-        return {
-          intent: latestExecution?.response.intent ?? "general",
-          requiresConfirmation: true,
-          source: latestExecution?.response.source,
-          artifact: latestExecution?.response.artifact,
-          artifacts: artifacts.length > 0 ? artifacts : undefined,
-          emailDraft: latestExecution?.response.emailDraft,
-          message: buildConfirmationMessage(action),
+      if (isConsequentialAction(action)) {
+        const pendingTool: PendingTool = {
+          toolName: action.toolName,
+          payload: (action.toolInput ?? {}) as Record<string, unknown>,
         };
+        const isAuthorized = verifyConfirmationToken(
+          options?.confirmationToken,
+          options?.userId,
+          pendingTool,
+          options?.threadId,
+        );
+
+        if (!isAuthorized) {
+          const latestExecution = getLatestExecution(executions);
+          const artifacts = getAllArtifacts(executions);
+          const token = options?.userId
+            ? generateConfirmationToken(options.userId, pendingTool, options?.threadId)
+            : null;
+
+          return {
+            intent: latestExecution?.response.intent ?? "general",
+            requiresConfirmation: true,
+            source: latestExecution?.response.source,
+            artifact: latestExecution?.response.artifact,
+            artifacts: artifacts.length > 0 ? artifacts : undefined,
+            emailDraft: latestExecution?.response.emailDraft,
+            message: buildConfirmationMessage(action),
+            ...(token ? { confirmationToken: token, pendingTool } : {}),
+          };
+        }
       }
 
       const execution = await executeToolAction(userMessage, action, {

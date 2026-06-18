@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Suspense, useState } from "react";
 import { Building2, LoaderCircle } from "lucide-react";
 
@@ -45,11 +46,49 @@ function WorkspaceOutline() {
 
 function LoginForm() {
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const urlError = searchParams.get("error");
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function signInWithEmail() {
+    if (!email || !password) {
+      setError("E-mail a heslo jsou povinné.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const supabase = createSupabaseBrowserClient();
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (authError) {
+      setLoading(false);
+      if (
+        authError.message.toLowerCase().includes("invalid") ||
+        authError.message.toLowerCase().includes("credentials") ||
+        authError.message.toLowerCase().includes("password") ||
+        authError.message.toLowerCase().includes("user")
+      ) {
+        setError("Neplatný e-mail nebo heslo.");
+      } else {
+        setError("Přihlášení se nezdařilo. Zkuste to znovu.");
+      }
+      return;
+    }
+
+    window.location.href = "/";
+  }
 
   async function signInWithGoogle() {
-    setLoading(true);
+    setGoogleLoading(true);
     const supabase = createSupabaseBrowserClient();
     await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -79,22 +118,70 @@ function LoginForm() {
         Přihlášení
       </h1>
       <p className="mb-10 text-[16px] leading-6 text-[#8b8f92]">
-        Přístup pouze pro členy týmu. Použijte firemní Google účet.
+        Přístup pouze pro členy týmu.
       </p>
 
       <div className="flex flex-col gap-3">
+        {/* Email/password section */}
+        <input
+          type="email"
+          placeholder="E-mail"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={loading || googleLoading}
+          className="h-12 w-full rounded-md border border-[#2f3336] bg-[#0a0a0a] px-4 text-[15px] text-white placeholder-[#71767b] outline-none focus:border-[#555] disabled:opacity-60"
+        />
+        <input
+          type="password"
+          placeholder="Heslo"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void signInWithEmail();
+          }}
+          disabled={loading || googleLoading}
+          className="h-12 w-full rounded-md border border-[#2f3336] bg-[#0a0a0a] px-4 text-[15px] text-white placeholder-[#71767b] outline-none focus:border-[#555] disabled:opacity-60"
+        />
+
         <button
           type="button"
-          onClick={() => void signInWithGoogle()}
-          disabled={loading}
-          className="flex h-12 w-full items-center justify-center gap-3 rounded-md bg-[#eff3f4] px-5 text-[15px] font-semibold text-[#0f1419] transition hover:bg-[#e6e9ea] disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={() => void signInWithEmail()}
+          disabled={loading || googleLoading}
+          className="flex h-12 w-full items-center justify-center gap-3 rounded-md bg-white px-5 text-[15px] font-semibold text-[#0f1419] transition hover:bg-[#e6e9ea] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? (
             <LoaderCircle className="size-5 animate-spin text-black/40" />
+          ) : null}
+          {loading ? "Přihlašování..." : "Přihlásit se"}
+        </button>
+
+        <p className="text-center text-[13px] text-[#71767b]">
+          Nemáte účet?{" "}
+          <Link href="/signup" className="text-[#e7e9ea] underline hover:text-white">
+            Registrovat se
+          </Link>
+        </p>
+
+        {/* Separator */}
+        <div className="my-2 flex items-center gap-3">
+          <div className="h-px flex-1 bg-[#2f3336]" />
+          <span className="text-[13px] text-[#71767b]">nebo</span>
+          <div className="h-px flex-1 bg-[#2f3336]" />
+        </div>
+
+        {/* Google OAuth button */}
+        <button
+          type="button"
+          onClick={() => void signInWithGoogle()}
+          disabled={loading || googleLoading}
+          className="flex h-12 w-full items-center justify-center gap-3 rounded-md bg-[#eff3f4] px-5 text-[15px] font-semibold text-[#0f1419] transition hover:bg-[#e6e9ea] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {googleLoading ? (
+            <LoaderCircle className="size-5 animate-spin text-black/40" />
           ) : (
-              <GoogleLogo />
-            )}
-          {loading ? "Přesměrování..." : "Pokračovat přes Google"}
+            <GoogleLogo />
+          )}
+          {googleLoading ? "Přesměrování..." : "Pokračovat přes Google"}
         </button>
       </div>
 
@@ -102,9 +189,9 @@ function LoginForm() {
         Pokud přístup nefunguje, kontaktujte správce systému.
       </p>
 
-      {error && (
+      {(error ?? urlError) && (
         <p className="mt-5 text-sm text-red-400">
-          Přihlášení se nezdařilo. Zkuste to znovu nebo kontaktujte správce.
+          {error ?? "Přihlášení se nezdařilo. Zkuste to znovu nebo kontaktujte správce."}
         </p>
       )}
     </div>

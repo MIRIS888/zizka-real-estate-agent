@@ -1,13 +1,16 @@
 export function isCronAuthorized(request: Request): boolean {
-  // Vercel Cron sends x-vercel-cron: 1 from their infrastructure (not forgeable externally)
-  const isVercelCron = request.headers.get("x-vercel-cron") === "1";
-
   const secret = process.env.CRON_SECRET;
+
   if (secret) {
-    // Prefer explicit bearer token when secret is configured
+    // CRON_SECRET is set — require matching Bearer token
     return request.headers.get("authorization") === `Bearer ${secret}`;
   }
 
-  // Fall back to Vercel-only header when no secret is set
-  return isVercelCron;
+  // In production, CRON_SECRET must always be configured
+  if (process.env.NODE_ENV === "production") {
+    return false;
+  }
+
+  // Local dev fallback only: accept Vercel infrastructure header
+  return request.headers.get("x-vercel-cron") === "1";
 }
