@@ -18,6 +18,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     .from("chat_threads")
     .select("id, user_id, title, created_at, updated_at")
     .eq("id", id)
+    .eq("user_id", user.id)
     .single();
 
   if (threadError || !threadData) {
@@ -59,7 +60,7 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  if (count === 0) {
+  if (!count) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

@@ -98,7 +98,7 @@ export async function POST(request: Request) {
       try {
         await supabase.from("chat_messages").insert([
           { thread_id: threadId, role: "user", content: message },
-          { thread_id: threadId, role: "assistant", content: response.message },
+          { thread_id: threadId, role: "assistant", content: JSON.stringify(response) },
         ]);
         await supabase
           .from("chat_threads")
