@@ -1,6 +1,6 @@
 # Agent Setup
 
-Aktualizováno: 2026-06-17
+Aktualizováno: 2026-06-18
 
 ## Současné nastavení
 
@@ -59,6 +59,10 @@ Gemini má deklarované tyto funkce:
 - `query_sales_metrics`
 - `find_incomplete_properties`
 - `find_calendar_slots`
+- `find_calendar_events` — vyhledá existující události v kalendáři
+- `create_calendar_event` — vytvoří událost (vyžaduje potvrzení)
+- `update_calendar_event` — upraví existující událost (vyžaduje potvrzení)
+- `delete_calendar_event` — smaže existující událost (vyžaduje potvrzení)
 - `create_email_draft`
 - `send_email`
 - `create_weekly_report`
@@ -73,9 +77,60 @@ Akce s následkem se nesmí provést bez potvrzení uživatele:
 
 - `send_email`
 - `send_morning_report`
+- `create_calendar_event` — potvrzení: "ano vytvoř"
+- `update_calendar_event` — potvrzení: "ano uprav" nebo "ano přesuň"
+- `delete_calendar_event` — potvrzení: "ano smaž" nebo "ano zruš"
 - `watch_market` s `mode: "schedule"`
+- `create_scheduled_task`, `update_scheduled_task`, `delete_scheduled_task`
 
 Toto je vynucené v promptu i v serverovém kódu v `run-agent.ts`. Pokud model zavolá consequential funkci bez potvrzení, server ji nespustí a vrátí potvrzovací zprávu.
+
+## Google Calendar — OAuth scopes
+
+Pro plnou funkčnost kalendáře (čtení i zápis) jsou potřeba tyto scopes:
+
+```text
+https://www.googleapis.com/auth/calendar.readonly
+https://www.googleapis.com/auth/calendar.events
+```
+
+Oba jsou zahrnuty v `SCOPES` konstantě v `src/lib/google/oauth.ts`.
+
+Pokud měl uživatel Google účet připojený dříve (před přidáním těchto nových funkcí), **musí Google účet znovu připojit** (`/api/auth/google/start`), aby získal nové scopes s přístupem k `events.list`, `events.patch` a `events.delete`.
+
+Stávající token bez `calendar.events` scope vrátí řízenou českou chybu — žádný crash.
+
+## Testovací scénáře pro kalendář
+
+Vyhledání událostí:
+```text
+Jaké mám dnes schůzky?
+```
+Očekávání: zavolá `find_calendar_events`, vrátí přehledný seznam, žádné UTC timestampy.
+
+Úprava události:
+```text
+Přesuň schůzku s panem Vomáčkou na zítra v 15:00.
+```
+Očekávání: najde událost → připraví update → požádá o "ano uprav" → po potvrzení upraví.
+
+Mazání události:
+```text
+Zruš schůzku s panem Vomáčkou.
+```
+Očekávání: najde událost → požádá o "ano smaž" → po potvrzení smaže.
+
+Více kandidátů:
+```text
+Zruš schůzku.
+```
+Očekávání: pokud víc kandidátů, nevykoná delete — zeptá se na konkrétní výběr.
+
+Termín v minulosti:
+```text
+Přesuň schůzku na dnes v 8:00.  (po 8:00)
+```
+Očekávání: odmítne, nabídne budoucí termíny.
 
 ## Market watch režimy
 

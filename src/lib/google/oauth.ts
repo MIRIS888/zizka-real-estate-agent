@@ -59,6 +59,8 @@ const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
 const GOOGLE_FREEBUSY_URL = "https://www.googleapis.com/calendar/v3/freeBusy";
 const GOOGLE_CALENDAR_LIST_URL =
   "https://www.googleapis.com/calendar/v3/users/me/calendarList";
+const GOOGLE_CALENDAR_EVENTS_URL = (calendarId: string) =>
+  `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
 const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/calendar.freebusy",
@@ -601,6 +603,304 @@ export async function createGoogleCalendarEvent(
     created: true,
   };
 }
+
+// ─── Calendar event types ───────────────────────────────────────────────────
+
+export type CalendarEventSummary = {
+  id: string;
+  title: string;
+  startDateTime: string;
+  endDateTime: string;
+  dateLabel: string;
+  timeLabel: string;
+  location?: string;
+  description?: string;
+  attendees: string[];
+  htmlLink?: string;
+  calendarId: string;
+};
+
+export type FindCalendarEventsInput = {
+  query?: string;
+  dateRange?: { start: string; end: string };
+  personName?: string;
+  location?: string;
+  calendarId?: string;
+  timezone?: string;
+  maxResults?: number;
+};
+
+export type UpdateCalendarEventInput = {
+  eventId: string;
+  eventTitle?: string;
+  calendarId?: string;
+  title?: string;
+  startDateTime?: string;
+  endDateTime?: string;
+  timezone?: string;
+  location?: string;
+  description?: string;
+  attendeeEmail?: string;
+  sendUpdates?: "all" | "externalOnly" | "none";
+};
+
+export type DeleteCalendarEventInput = {
+  eventId: string;
+  eventTitle?: string;
+  calendarId?: string;
+  sendUpdates?: "all" | "externalOnly" | "none";
+};
+
+export type UpdateCalendarEventResult = {
+  id: string;
+  title: string;
+  startLocal: string;
+  endLocal: string;
+  timezone: string;
+  location?: string;
+  htmlLink?: string;
+  updated: true;
+};
+
+// ─── Calendar formatting helpers ─────────────────────────────────────────────
+
+function formatEventDateLabel(dt: string, timezone: string): string {
+  if (!dt) return "";
+  const date = new Date(dt);
+  const today = new Date();
+  const toDateKey = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(d);
+
+  const formatted = new Intl.DateTimeFormat("cs-CZ", {
+    timeZone: timezone,
+    weekday: "long",
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+  }).format(date);
+
+  if (toDateKey(date) === toDateKey(today)) return `dnes, ${formatted}`;
+  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+  if (toDateKey(date) === toDateKey(tomorrow)) return `zítra, ${formatted}`;
+  return formatted;
+}
+
+function formatEventTimeLabel(startDT: string, endDT: string, timezone: string): string {
+  if (!startDT) return "";
+  const timeFmt = new Intl.DateTimeFormat("cs-CZ", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const start = new Date(startDT);
+  if (!endDT) return timeFmt.format(start);
+  return `${timeFmt.format(start)}–${timeFmt.format(new Date(endDT))}`;
+}
+
+function toTimeMin(dateStr: string, timezone: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return createDateInTimeZone(new Date(dateStr + "T12:00:00Z"), 0, 0, timezone).toISOString();
+  }
+  return new Date(dateStr).toISOString();
+}
+
+function toTimeMax(dateStr: string, timezone: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return createDateInTimeZone(new Date(dateStr + "T12:00:00Z"), 23, 59, timezone).toISOString();
+  }
+  return new Date(dateStr).toISOString();
+}
+
+// ─── Calendar event operations ────────────────────────────────────────────────
+
+export async function findGoogleCalendarEvents(
+  token: StoredGoogleToken,
+  input: FindCalendarEventsInput,
+): Promise<{ events: CalendarEventSummary[]; isEmpty: boolean; isMock: false }> {
+  const accessToken = await refreshAccessToken(token);
+  const calendarId = input.calendarId ?? "primary";
+  const timezone = input.timezone ?? "Europe/Prague";
+  const maxResults = input.maxResults ?? 10;
+
+  const queryParts: string[] = [];
+  if (input.query) queryParts.push(input.query);
+  if (input.personName) queryParts.push(input.personName);
+  const q = queryParts.join(" ") || undefined;
+
+  const now = new Date();
+  const timeMin = input.dateRange?.start
+    ? toTimeMin(input.dateRange.start, timezone)
+    : now.toISOString();
+  const timeMax = input.dateRange?.end
+    ? toTimeMax(input.dateRange.end, timezone)
+    : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const params = new URLSearchParams({
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: String(maxResults),
+    timeMin,
+    timeMax,
+  });
+  if (q) params.set("q", q);
+  if (input.location) params.set("q", [q, input.location].filter(Boolean).join(" "));
+
+  const url = `${GOOGLE_CALENDAR_EVENTS_URL(calendarId)}?${params.toString()}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    const errPayload = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string; status?: string };
+    };
+    if (errPayload.error?.status === "PERMISSION_DENIED" || response.status === 403) {
+      throw new Error("MISSING_READ_SCOPE");
+    }
+    throw new Error(`Google Calendar: ${errPayload.error?.message ?? `HTTP ${response.status}`}`);
+  }
+
+  const payload = (await response.json()) as {
+    items?: Array<{
+      id?: string;
+      summary?: string;
+      start?: { dateTime?: string; date?: string };
+      end?: { dateTime?: string; date?: string };
+      location?: string;
+      description?: string;
+      attendees?: Array<{ email?: string; displayName?: string }>;
+      htmlLink?: string;
+    }>;
+  };
+
+  const events: CalendarEventSummary[] = (payload.items ?? []).map((item) => {
+    const startDT = item.start?.dateTime ?? item.start?.date ?? "";
+    const endDT = item.end?.dateTime ?? item.end?.date ?? "";
+    return {
+      id: item.id ?? "",
+      title: item.summary ?? "(bez názvu)",
+      startDateTime: startDT,
+      endDateTime: endDT,
+      dateLabel: formatEventDateLabel(startDT, timezone),
+      timeLabel: formatEventTimeLabel(startDT, endDT, timezone),
+      location: item.location,
+      description: item.description,
+      attendees: (item.attendees ?? []).map((a) => a.displayName ?? a.email ?? "").filter(Boolean),
+      htmlLink: item.htmlLink,
+      calendarId,
+    };
+  });
+
+  return { events, isEmpty: events.length === 0, isMock: false };
+}
+
+export async function updateGoogleCalendarEvent(
+  token: StoredGoogleToken,
+  input: UpdateCalendarEventInput,
+): Promise<UpdateCalendarEventResult> {
+  if (!hasCalendarWriteScope(token)) {
+    throw new Error("MISSING_WRITE_SCOPE");
+  }
+
+  const accessToken = await refreshAccessToken(token);
+  const calendarId = input.calendarId ?? "primary";
+  const timezone = input.timezone ?? "Europe/Prague";
+  const sendUpdates = input.sendUpdates ?? "none";
+
+  const patch: Record<string, unknown> = {};
+  if (input.title) patch.summary = input.title;
+  if (input.startDateTime) patch.start = { dateTime: input.startDateTime, timeZone: timezone };
+  if (input.endDateTime) patch.end = { dateTime: input.endDateTime, timeZone: timezone };
+  if (input.location !== undefined) patch.location = input.location;
+  if (input.description !== undefined) patch.description = input.description;
+  if (input.attendeeEmail) patch.attendees = [{ email: input.attendeeEmail }];
+
+  const url = `${GOOGLE_CALENDAR_EVENTS_URL(calendarId)}/${encodeURIComponent(input.eventId)}?sendUpdates=${sendUpdates}`;
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(patch),
+  });
+
+  if (!response.ok) {
+    const errPayload = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string; status?: string };
+    };
+    if (errPayload.error?.status === "PERMISSION_DENIED" || response.status === 403) {
+      throw new Error("MISSING_WRITE_SCOPE");
+    }
+    if (response.status === 404) throw new Error("EVENT_NOT_FOUND");
+    throw new Error(`Google Calendar: ${errPayload.error?.message ?? `HTTP ${response.status}`}`);
+  }
+
+  const event = (await response.json()) as {
+    id?: string;
+    summary?: string;
+    start?: { dateTime?: string };
+    end?: { dateTime?: string };
+    location?: string;
+    htmlLink?: string;
+  };
+
+  const fmtLocal = (dt?: string) => {
+    if (!dt) return "";
+    return new Intl.DateTimeFormat("cs-CZ", {
+      timeZone: timezone,
+      weekday: "long",
+      day: "numeric",
+      month: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(dt));
+  };
+
+  return {
+    id: event.id ?? input.eventId,
+    title: event.summary ?? input.title ?? "",
+    startLocal: fmtLocal(event.start?.dateTime),
+    endLocal: fmtLocal(event.end?.dateTime),
+    timezone,
+    location: event.location,
+    htmlLink: event.htmlLink,
+    updated: true,
+  };
+}
+
+export async function deleteGoogleCalendarEvent(
+  token: StoredGoogleToken,
+  input: DeleteCalendarEventInput,
+): Promise<{ deleted: true; id: string }> {
+  if (!hasCalendarWriteScope(token)) {
+    throw new Error("MISSING_WRITE_SCOPE");
+  }
+
+  const accessToken = await refreshAccessToken(token);
+  const calendarId = input.calendarId ?? "primary";
+  const sendUpdates = input.sendUpdates ?? "none";
+
+  const url = `${GOOGLE_CALENDAR_EVENTS_URL(calendarId)}/${encodeURIComponent(input.eventId)}?sendUpdates=${sendUpdates}`;
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    if (response.status === 404) throw new Error("EVENT_NOT_FOUND");
+    if (response.status === 403) throw new Error("MISSING_WRITE_SCOPE");
+    const errPayload = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string };
+    };
+    throw new Error(`Google Calendar: ${errPayload.error?.message ?? `HTTP ${response.status}`}`);
+  }
+
+  return { deleted: true, id: input.eventId };
+}
+
+// ─── Gmail ───────────────────────────────────────────────────────────────────
 
 const GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 

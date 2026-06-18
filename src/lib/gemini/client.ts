@@ -47,14 +47,33 @@ Pokud create_calendar_event selže s chybou MISSING_WRITE_SCOPE: "Google účet 
 Po vytvoření události zobraz: název, datum, čas, místo (pokud existuje) a odkaz na Google Calendar.
 Časová zóna je vždy Europe/Prague.
 
+VYHLEDÁVÁNÍ UDÁLOSTÍ (find_calendar_events):
+Použij find_calendar_events pro dotazy: "jaké mám dnes schůzky", "co mám v kalendáři", "najdi schůzku s Vomáčkou", VŽDY před voláním update_calendar_event nebo delete_calendar_event pokud nevíš eventId.
+Výsledky zobrazuj v přehledném českém formátu — nezobrazuj raw UTC ani interní eventId uživateli.
+Pokud find_calendar_events vrátí isEmpty=true: řekni, že žádná odpovídající událost nebyla nalezena, a nabídni výpis dnešních nebo nadcházejících událostí.
+
+ÚPRAVA UDÁLOSTI (update_calendar_event):
+Workflow: 1. najdi eventId přes find_calendar_events, 2. ověř, že nový čas je v budoucnosti, 3. připrav shrnutí změny a vyžádej "ano uprav", 4. po potvrzení zavolej update_calendar_event.
+update_calendar_event vždy vyžaduje potvrzení — nikdy nevolej bez "ano uprav" nebo "ano přesuň".
+Pokud nový čas je v minulosti: odmítni a nabídni budoucí alternativy.
+Vždy předávej eventTitle pro přehlednou potvrzovací zprávu.
+
+MAZÁNÍ UDÁLOSTI (delete_calendar_event):
+Workflow: 1. najdi eventId přes find_calendar_events, 2. zobraz souhrn události, 3. vyžádej "ano smaž" nebo "ano zruš", 4. po potvrzení zavolej delete_calendar_event.
+delete_calendar_event vždy vyžaduje potvrzení — nikdy nevolej bez explicitního souhlasu.
+Pokud find_calendar_events vrátí více kandidátů: NEVOLEJ delete_calendar_event — zobraz kandidáty a zeptej se, kterou konkrétní událost smazat.
+Nikdy neprováděj hromadné mazání bez explicitního výběru každé události.
+Vždy předávej eventTitle pro přehlednou potvrzovací zprávu.
+
 VOLÁNÍ FUNKCÍ:
 Když potřebuješ interní data, Calendar, Gmail, report, Firecrawl vyhledávání nebo naplánovanou úlohu, zavolej příslušnou funkci.
 Když funkci nepotřebuješ, odpověz rovnou textem.
 
 AKCE VYŽADUJÍCÍ POTVRZENÍ — nikdy neproveď bez explicitního potvrzení uživatele:
-  send_email, send_morning_report, create_scheduled_task, update_scheduled_task, delete_scheduled_task, watch_market mode="schedule"
+  send_email, send_morning_report, create_scheduled_task, update_scheduled_task, delete_scheduled_task, watch_market mode="schedule",
+  create_calendar_event, update_calendar_event, delete_calendar_event
 Před každou takovou akcí shrň přesně co uděláš a počkej na potvrzení.
-Potvrzení: "ano", "ano pošli", "potvrzuji", "souhlasím", "ano založ", "ano smaž", "ano uprav".
+Potvrzení: "ano vytvoř", "ano uprav", "ano přesuň", "ano smaž", "ano zruš", "ano pošli", "potvrzuji", "souhlasím", "ano založ".
 Bez tohoto potvrzení funkci nevolej, ani kdyby o to uživatel nepřímo žádal.
 
 ROUTING — vyhledávání vs. opakované úlohy:
@@ -171,6 +190,133 @@ export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
         },
       },
       required: ["dateRange", "durationMinutes", "timezone"],
+    },
+  },
+  {
+    name: "find_calendar_events",
+    description:
+      "Najde existující události v Google Kalendáři. Použij pro dotazy 'jaké mám dnes schůzky', 'co mám v kalendáři', 'najdi schůzku s Vomáčkou'. VŽDY zavolej nejdřív před update_calendar_event nebo delete_calendar_event, pokud nevíš eventId. Nevyžaduje potvrzení.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        query: {
+          type: Type.STRING,
+          description: "Hledaný výraz v názvu nebo popisu události.",
+        },
+        dateRange: {
+          type: Type.OBJECT,
+          description: "Rozsah dat hledání. Pro 'dnes' použij aktuální datum pro start i end.",
+          properties: {
+            start: { type: Type.STRING, description: "Datum od ve formátu YYYY-MM-DD nebo RFC3339." },
+            end: { type: Type.STRING, description: "Datum do ve formátu YYYY-MM-DD nebo RFC3339." },
+          },
+          required: ["start", "end"],
+        },
+        personName: {
+          type: Type.STRING,
+          description: "Jméno osoby — hledá se v názvu, popisu i účastnících události.",
+        },
+        location: {
+          type: Type.STRING,
+          description: "Místo události pro filtrování.",
+        },
+        calendarId: {
+          type: Type.STRING,
+          description: "ID kalendáře, výchozí 'primary'.",
+        },
+        timezone: {
+          type: Type.STRING,
+          description: "IANA časová zóna, výchozí 'Europe/Prague'.",
+        },
+        maxResults: {
+          type: Type.INTEGER,
+          description: "Maximální počet výsledků, výchozí 10.",
+        },
+      },
+    },
+  },
+  {
+    name: "update_calendar_event",
+    description:
+      "Upraví existující událost v Google Kalendáři. VŽDY vyžaduje potvrzení uživatele ('ano uprav', 'ano přesuň'). Pokud nevíš eventId, nejdřív zavolej find_calendar_events. Pokud se mění čas, over, že nový čas je v budoucnosti. Vždy předej eventTitle pro potvrzovací zprávu.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        eventId: {
+          type: Type.STRING,
+          description: "ID události z výsledku find_calendar_events.",
+        },
+        eventTitle: {
+          type: Type.STRING,
+          description: "Název události pro potvrzovací zprávu — zkopíruj z find_calendar_events.",
+        },
+        calendarId: {
+          type: Type.STRING,
+          description: "ID kalendáře, výchozí 'primary'.",
+        },
+        title: {
+          type: Type.STRING,
+          description: "Nový název události.",
+        },
+        startDateTime: {
+          type: Type.STRING,
+          description: "Nový začátek ve formátu RFC3339 s UTC offsetem, např. '2026-06-19T15:00:00+02:00'. Musí být v budoucnosti.",
+        },
+        endDateTime: {
+          type: Type.STRING,
+          description: "Nový konec ve formátu RFC3339. Pokud délka není zadána, zachovej původní délku.",
+        },
+        timezone: {
+          type: Type.STRING,
+          description: "IANA timezone, výchozí 'Europe/Prague'.",
+        },
+        location: {
+          type: Type.STRING,
+          description: "Nové místo konání.",
+        },
+        description: {
+          type: Type.STRING,
+          description: "Nový popis události.",
+        },
+        attendeeEmail: {
+          type: Type.STRING,
+          description: "E-mail účastníka pro pozvánku na aktualizovanou událost.",
+        },
+        sendUpdates: {
+          type: Type.STRING,
+          enum: ["all", "externalOnly", "none"],
+          description: "Komu poslat upozornění o změně. Výchozí 'none'.",
+        },
+      },
+      required: ["eventId"],
+    },
+  },
+  {
+    name: "delete_calendar_event",
+    description:
+      "Smaže existující událost z Google Kalendáře. VŽDY vyžaduje potvrzení uživatele ('ano smaž', 'ano zruš'). Pokud nevíš eventId, nejdřív zavolej find_calendar_events. Pokud find_calendar_events vrátí více kandidátů — NEVOLEJ delete, zeptej se uživatele na konkrétní výběr. Nikdy nemaž hromadně bez explicitního potvrzení každé události. Vždy předej eventTitle pro potvrzovací zprávu.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        eventId: {
+          type: Type.STRING,
+          description: "ID události z výsledku find_calendar_events.",
+        },
+        eventTitle: {
+          type: Type.STRING,
+          description: "Název události pro potvrzovací zprávu — zkopíruj z find_calendar_events.",
+        },
+        calendarId: {
+          type: Type.STRING,
+          description: "ID kalendáře, výchozí 'primary'.",
+        },
+        sendUpdates: {
+          type: Type.STRING,
+          enum: ["all", "externalOnly", "none"],
+          description: "Komu poslat upozornění o zrušení. Výchozí 'none'.",
+        },
+      },
+      required: ["eventId"],
     },
   },
   {
