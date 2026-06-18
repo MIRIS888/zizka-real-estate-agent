@@ -141,6 +141,22 @@ export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
     },
   },
   {
+    name: "query_property_metrics",
+    description:
+      "Zobrazí přehled nemovitostí podle zvoleného členění. Použij pro dotazy jako 'ukáž všechny nemovitosti graficky', 'kolik máme aktivních nemovitostí', 'nemovitosti podle lokality', 'přehled nemovitostí podle statusu'. Nepoužívej pro hledání chybějících dat.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        groupBy: {
+          type: Type.STRING,
+          enum: ["status", "district", "city"],
+          description: "Dimenze seskupení: status (aktivní/rezervováno/prodáno), district (městská část), city (město).",
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: "find_incomplete_properties",
     description:
       "Najde nemovitosti s chybějícími údaji. Použij pro kontrolu kvality dat, hlavně když uživatel zmiňuje rekonstrukci, stavební úpravy, energetickou náročnost nebo podlahovou plochu.",

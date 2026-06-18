@@ -12,6 +12,7 @@ import {
   FindCalendarSlotsInputSchema,
   FindIncompletePropertiesInputSchema,
   QueryLeadMetricsInputSchema,
+  QueryPropertyMetricsInputSchema,
   QuerySalesMetricsInputSchema,
   SendMorningReportInputSchema,
   SendEmailInputSchema,
@@ -50,6 +51,7 @@ import { searchMarketListings } from "@/lib/tools/market-search";
 import { upsertMarketWatchRule } from "@/lib/tools/market-watch-schedule";
 import { buildMorningReport } from "@/lib/tools/morning-report";
 import { findIncompleteProperties } from "@/lib/tools/property-quality";
+import { queryPropertyMetrics } from "@/lib/tools/property-metrics";
 import {
   createGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
@@ -216,7 +218,7 @@ function getDefaultCalendarDateRange() {
 
 function getDefaultSixMonthDateRange() {
   const today = new Date();
-  const from = new Date(Date.UTC(today.getFullYear(), today.getMonth() - 5, 1, 12, 0, 0));
+  const from = new Date(Date.UTC(today.getFullYear(), today.getMonth() - 17, 1, 12, 0, 0));
 
   return {
     from: formatDateKey(from),
@@ -324,6 +326,7 @@ function createFunctionToolCall(functionCall: FunctionCall): FunctionToolCall {
   const toolName = functionCall.name;
   const allowedToolNames: AgentToolName[] = [
     "query_lead_metrics",
+    "query_property_metrics",
     "query_sales_metrics",
     "find_incomplete_properties",
     "find_calendar_slots",
@@ -707,6 +710,36 @@ async function executeToolAction(
           missingFields: property.missingFields.join(", "),
         })),
       },
+      },
+    };
+  }
+
+  if (action.toolName === "query_property_metrics") {
+    const organizationId = getDefaultOrganizationId();
+    const input = QueryPropertyMetricsInputSchema.parse(
+      action.toolInput ?? { groupBy: "status" },
+    );
+    const metrics = await queryPropertyMetrics(organizationId, input);
+    const isMock = getDataSourceEnvironment().DATA_SOURCE === "local";
+    const total = metrics.reduce((sum, m) => sum + m.count, 0);
+
+    return {
+      toolName: action.toolName,
+      toolInput: input,
+      result: { input, metrics, total, isMock, isEmpty: metrics.length === 0 },
+      isMock,
+      isEmpty: metrics.length === 0,
+      response: {
+        intent: "analytics",
+        requiresConfirmation: false,
+        source: getBusinessDataSource(),
+        artifact: {
+          type: "chart",
+          title: `Nemovitosti podle ${input.groupBy === "status" ? "statusu" : input.groupBy === "district" ? "městské části" : "města"}`,
+          xKey: "label",
+          yKey: "count",
+          data: metrics,
+        },
       },
     };
   }

@@ -10,6 +10,10 @@ export const QueryLeadMetricsInputSchema = z.object({
   groupBy: z.enum(["month", "source", "status"]),
 });
 
+export const QueryPropertyMetricsInputSchema = z.object({
+  groupBy: z.enum(["status", "district", "city"]).default("status"),
+});
+
 export const FindIncompletePropertiesInputSchema = z.object({
   fields: z
     .array(
@@ -143,6 +147,7 @@ export const CreateCalendarEventInputSchema = z.object({
 export const AgentToolNameSchema = z.enum([
   "none",
   "query_lead_metrics",
+  "query_property_metrics",
   "query_sales_metrics",
   "find_incomplete_properties",
   "find_calendar_slots",

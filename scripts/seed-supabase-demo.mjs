@@ -41,7 +41,8 @@ const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-const ORG_ID = "00000000-0000-4000-8000-000000000001";
+const ORG_ID =
+  process.env.DEFAULT_ORGANIZATION_ID ?? "00000000-0000-4000-8000-000000000001";
 
 const clients = [
   { id: "00000000-0000-4001-8001-000000000001", full_name: "Petra Svobodová",      email: "petra.svobodova@example.com",    phone: "+420777111222", source: "Sreality",      created_at: "2026-01-12T09:00:00Z" },
@@ -209,10 +210,16 @@ async function seed() {
   }));
   ok = (await upsertTable("tasks", taskRows, "tasks")) && ok;
 
-  console.log(ok ? "\n✅ Seed complete." : "\n❌ Seed finished with errors.");
+  if (ok) {
+    console.log("\n✅ Seed complete.");
+    console.log(`   clients: 15, properties: 12, leads: 28, tasks: 7`);
+    console.log(`   organization_id: ${ORG_ID}`);
+  } else {
+    console.log("\n❌ Seed finished with errors.");
+  }
   console.log("\nNext steps:");
   console.log("  1. Set DATA_SOURCE=supabase in .env.local");
-  console.log("  2. Set DEFAULT_ORGANIZATION_ID=00000000-0000-4000-8000-000000000001");
+  console.log(`  2. Set DEFAULT_ORGANIZATION_ID=${ORG_ID} in .env.local`);
   console.log("  3. npm run dev");
 
   if (!ok) process.exit(1);
