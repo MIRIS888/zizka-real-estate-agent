@@ -85,6 +85,12 @@ function inferDateRangeFromMessage(userMessage: string) {
       ? Number(explicitDateMatch[3])
       : today.getFullYear();
     const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+
+    // If the explicit date is in the past, fall through to null so Calendar uses today onwards
+    if (formatDateKey(date) < formatDateKey(today)) {
+      return null;
+    }
+
     const dateKey = formatDateKey(date);
 
     return { from: dateKey, to: dateKey };

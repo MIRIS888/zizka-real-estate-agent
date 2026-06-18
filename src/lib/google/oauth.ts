@@ -396,6 +396,9 @@ export async function findGoogleCalendarSlots(
   return availability?.freeSlots ?? null;
 }
 
+// Minimum buffer before a slot can be suggested — prevents proposing times that are too soon or already past
+const SLOT_BUFFER_MINUTES = 60;
+
 export async function findGoogleCalendarAvailability(
   token?: StoredGoogleToken | null,
   options?: CalendarSlotSearchOptions,
@@ -410,9 +413,13 @@ export async function findGoogleCalendarAvailability(
   const calendarIds = await getGoogleCalendarIds(accessToken);
   const timezone = options?.timezone ?? "Europe/Prague";
   const now = new Date();
-  const timeMin = options?.dateRange?.from
+  // minStart: absolute earliest datetime we'll ever suggest — now + safety buffer
+  const minStart = new Date(now.getTime() + SLOT_BUFFER_MINUTES * 60_000);
+  const requestedStart = options?.dateRange?.from
     ? createDateInTimeZone(new Date(`${options.dateRange.from}T12:00:00Z`), 0, 0, timezone)
     : now;
+  // Clamp FreeBusy query start to now so we don't query already-elapsed time
+  const timeMin = requestedStart < now ? now : requestedStart;
   const timeMax = options?.dateRange?.to
     ? createDateInTimeZone(new Date(`${options.dateRange.to}T12:00:00Z`), 23, 59, timezone)
     : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -466,7 +473,8 @@ export async function findGoogleCalendarAvailability(
     for (const hour of [9, 10, 11, 14, 15, 16]) {
       const start = createDateInTimeZone(day, hour, 0, timezone);
 
-      if (start <= timeMin || start >= timeMax) {
+      // Use minStart (not timeMin) — backend guard: never suggest a slot in the past or too close to now
+      if (start <= minStart || start >= timeMax) {
         continue;
       }
 
