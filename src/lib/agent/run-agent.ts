@@ -1175,6 +1175,7 @@ export async function runAgent(
   }
 
   const { client, model } = createGeminiClient();
+  const FALLBACK_MODEL = "gemini-2.5-flash";
   const contents: Content[] = [
     ...(options?.history ?? []).map((item) => ({
       role: item.role === "user" ? "user" : "model",
@@ -1193,15 +1194,35 @@ export async function runAgent(
     "Pro relativní datumy počítej rozsahy z aktuálního data výše.",
   ].join("\n");
 
-  for (let iteration = 0; iteration < MAX_AGENT_ITERATIONS; iteration += 1) {
-    const response = await client.models.generateContent({
-      model,
-      contents,
+  async function callGemini(activeModel: string, activeContents: Content[]) {
+    return client.models.generateContent({
+      model: activeModel,
+      contents: activeContents,
       config: {
         systemInstruction,
         ...getFunctionCallingConfig(),
       },
     });
+  }
+
+  for (let iteration = 0; iteration < MAX_AGENT_ITERATIONS; iteration += 1) {
+    let response;
+    try {
+      response = await callGemini(model, contents);
+    } catch (err) {
+      const isModelError =
+        err instanceof Error &&
+        (err.message.includes("INVALID_ARGUMENT") ||
+          err.message.includes("not found") ||
+          err.message.includes("model") ||
+          err.message.includes("thought_signature"));
+      if (isModelError && model !== FALLBACK_MODEL) {
+        console.error(`[runAgent] model=${model} failed (${(err as Error).message.slice(0, 120)}), falling back to ${FALLBACK_MODEL}`);
+        response = await callGemini(FALLBACK_MODEL, contents);
+      } else {
+        throw err;
+      }
+    }
     const functionCalls = getFunctionCalls(response);
 
     if (functionCalls.length === 0) {
@@ -1223,10 +1244,16 @@ export async function runAgent(
       return createTextResponse(response.text ?? "Hotovo.", executions);
     }
 
-    contents.push({
-      role: "model",
-      parts: functionCalls.map((functionCall) => ({ functionCall })),
-    });
+    // Preserve the full model response content including thoughtSignature parts.
+    // Gemini 3.5+ with thinking enabled embeds thoughtSignature in content parts;
+    // reconstructing only the functionCall parts strips it and causes a 400 on the next turn.
+    const modelContent = response.candidates?.[0]?.content;
+    contents.push(
+      modelContent ?? {
+        role: "model",
+        parts: functionCalls.map((functionCall) => ({ functionCall })),
+      },
+    );
 
     for (const functionCall of functionCalls) {
       const action = createFunctionToolCall(functionCall);
