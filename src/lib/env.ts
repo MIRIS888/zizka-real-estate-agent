@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const ServerEnvironmentSchema = z.object({
   GEMINI_API_KEY: z.string().min(1),
-  GEMINI_MODEL: z.string().min(1).default("gemini-2.5-flash"),
+  GEMINI_MODEL: z.string().min(1).default("gemini-3.5-flash"),
 });
 
 const SupabaseServerEnvironmentSchema = z.object({
