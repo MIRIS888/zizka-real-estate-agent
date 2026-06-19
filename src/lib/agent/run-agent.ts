@@ -37,7 +37,8 @@ import {
   getFunctionCallingConfig,
   getFunctionCalls,
 } from "@/lib/gemini/client";
-import { getDataSourceEnvironment, isGeminiConfigured } from "@/lib/env";
+import { getCronSecret, getDataSourceEnvironment, isGeminiConfigured, isQStashConfigured } from "@/lib/env";
+import { scheduleQStashTrigger, getRunDueTasksUrl } from "@/lib/scheduler/qstash";
 import { getDefaultOrganizationId } from "@/lib/supabase/server";
 import {
   createViewingEmailDraft,
@@ -484,7 +485,10 @@ function buildConfirmationMessage(action: FunctionToolCall) {
         hour: "2-digit",
         minute: "2-digit",
       }).format(runAtDate);
-      return `Mám nastavit **jednorázový** realitní přehled pro **${location}** na **${localTime}** a poslat výsledky e-mailem? Potvrďte prosím odpovědí ‘ano založ’.`;
+      if (isQStashConfigured()) {
+        return `Mám nastavit **jednorázový** realitní přehled pro **${location}** na **${localTime}** a poslat výsledky přesně v ten čas e-mailem? Potvrďte prosím odpovědí ‘ano založ’.`;
+      }
+      return `Mám zařadit **jednorázový** realitní přehled pro **${location}** do fronty? Spustí se při nejbližším denním běhu po ${localTime} (každý den v 08:00 Praha). Pro přesné spuštění v zadaný čas je potřeba nastavit QStash scheduler. Potvrďte prosím odpovědí ‘ano založ’.`;
     }
 
     const time = typeof raw.schedule_time === "string" ? raw.schedule_time : "08:00";
@@ -631,7 +635,7 @@ function buildConfirmedActionMessage(
       : "Hotovo, ranní report byl odeslán e-mailem.";
   }
   if (action.toolName === "create_scheduled_task") {
-    const result = execution.result as { created?: boolean; reason?: string; localTime?: string };
+    const result = execution.result as { created?: boolean; reason?: string; localTime?: string; scheduleKind?: string; qstashScheduled?: boolean };
     if (result?.reason === "past_datetime") {
       const t = result.localTime ?? "";
       return `Čas ${t} už dnes proběhl. Chcete to naplánovat na zítra ve stejnou dobu?`;
@@ -639,9 +643,13 @@ function buildConfirmedActionMessage(
     if (result?.reason === "missing_run_at") {
       return "Pro jednorázovou úlohu je potřeba zadat přesný čas. Zkuste to prosím znovu.";
     }
-    return execution.isEmpty
-      ? "Naplánovanou úlohu se nepodařilo vytvořit."
-      : "Hotovo, naplánovaná úloha byla vytvořena.";
+    if (execution.isEmpty) return "Naplánovanou úlohu se nepodařilo vytvořit.";
+    if (result?.scheduleKind === "one_time") {
+      return result?.qstashScheduled
+        ? "Hotovo, jednorázový report je naplánovaný — přijde přesně v zadaný čas."
+        : "Hotovo, jednorázový report byl zařazen do fronty. Spustí se v nejbližším denním běhu (každý den v 08:00 Praha).";
+    }
+    return "Hotovo, naplánovaná úloha byla vytvořena.";
   }
   if (action.toolName === "update_scheduled_task") {
     return execution.isEmpty
@@ -1310,6 +1318,23 @@ async function executeToolAction(
       recipient_email: options.userEmail,
     });
 
+    // For one-time tasks: schedule an exact HTTP trigger via Upstash QStash.
+    // The Vercel daily cron (06:00 UTC) remains as a safety fallback.
+    let qstashScheduled = false;
+    if (isOneTime && isQStashConfigured()) {
+      const cronSecret = getCronSecret();
+      const qstashToken = process.env.QSTASH_TOKEN ?? "";
+      if (cronSecret && qstashToken) {
+        const triggerResult = await scheduleQStashTrigger(
+          new Date(task.next_run_at),
+          getRunDueTasksUrl(),
+          cronSecret,
+          qstashToken,
+        );
+        qstashScheduled = triggerResult !== null;
+      }
+    }
+
     const tz = input.timezone;
     const rows = isOneTime
       ? [
@@ -1327,7 +1352,7 @@ async function executeToolAction(
     return {
       toolName: action.toolName,
       toolInput: input,
-      result: { task, created: true, isMock: false, isEmpty: false },
+      result: { task, created: true, scheduleKind: input.schedule_kind, qstashScheduled, isMock: false, isEmpty: false },
       isMock: false,
       isEmpty: false,
       response: {
@@ -2057,6 +2082,10 @@ export async function runAgent(
       .find((p) => p.type === "timeZoneName")?.value ?? "GMT+2";
   // "GMT+2" → "+02:00", "GMT+1" → "+01:00"
   const _isoOffset = _tzOffset.replace(/^GMT([+-])(\d+)$/, (_, sign, h) => `${sign}${h.padStart(2, "0")}:00`);
+  const _schedulerNote = isQStashConfigured()
+    ? "Scheduler jednorázových úloh: QStash (aktivní) — one_time task proběhne přesně v zadaný čas. Říkej uživateli 'přijde přesně v [čas]'."
+    : "Scheduler jednorázových úloh: denní batch Vercel cron 08:00 Praha — one_time task proběhne při nejbližším denním spuštění. NIKDY neslib přesný minutový čas; říkej 'zařadím to do fronty, spustí se nejdříve zítra ráno v 08:00'.";
+
   const systemInstruction = [
     CONVERSATIONAL_SYSTEM_INSTRUCTION,
     `Aktuální datum: ${_now.toISOString().slice(0, 10)}.`,
@@ -2064,6 +2093,7 @@ export async function runAgent(
     `Google Calendar připojen: ${options?.googleToken ? "ano" : "ne"}.`,
     `Pro vytváření kalendářových událostí: startDateTime/endDateTime musí být RFC3339 s UTC offsetem, např. "2026-06-18T14:00:00${_isoOffset}".`,
     "Pro relativní datumy počítej rozsahy z aktuálního data výše.",
+    _schedulerNote,
   ].join("\n");
 
   async function callGemini(activeModel: string, activeContents: Content[]) {

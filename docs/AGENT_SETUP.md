@@ -146,6 +146,25 @@ Přesuň schůzku na dnes v 8:00.  (po 8:00)
 ```
 Očekávání: odmítne, nabídne budoucí termíny.
 
+## Přesné plánování jednorázových úloh (QStash)
+
+Vercel Hobby plan = 1 cron denně (06:00 UTC). Bez QStash se `one_time` tasky spustí při nejbližším denním běhu (08:00 Praha), nikoliv v přesný zadaný čas.
+
+### Nastavení pro přesné plánování
+
+```env
+QSTASH_TOKEN=qstash_token_z_konzole   # z https://console.upstash.com/qstash
+APP_URL=https://tvoje-app.vercel.app  # bez lomítka na konci
+```
+
+Při vytvoření `one_time` tasku `run-agent.ts` automaticky:
+1. Uloží task do DB s `schedule_kind="one_time"`, `run_once=true`
+2. Zavolá QStash API: `POST https://qstash.upstash.io/v2/publish/{APP_URL}/api/cron/run-due-tasks` s `Upstash-Not-Before` = UTC timestamp
+3. QStash v přesný čas pošle POST na endpoint; `CRON_SECRET` je forwardován v `Authorization` headeru
+4. Existující `idempotency_key` zabraňuje duplicitám (Vercel denní cron + QStash)
+
+Diagnostika: `npm run diagnose:cron` → sekce `Scheduler:`
+
 ## Market watch režimy
 
 `watch_market` má povinný parametr:

@@ -52,6 +52,20 @@ async function run() {
   const now = new Date();
   console.log(`\n=== CRON HEALTH — ${now.toLocaleString("cs-CZ", { timeZone: "Europe/Prague" })} ===\n`);
 
+  // ── 0. Scheduler health ───────────────────────────────────────────────────
+  const qstashToken = process.env.QSTASH_TOKEN;
+  const appUrl = process.env.APP_URL;
+  const qstashOk = !!(qstashToken && appUrl);
+  console.log("Scheduler:");
+  console.log(`  type:     ${qstashOk ? "QStash (precise one-time)" : "Vercel daily cron (batch)"}`);
+  console.log(`  QSTASH_TOKEN: ${qstashToken ? "✅ set" : "❌ not set — one-time tasks will run in next daily batch"}`);
+  console.log(`  APP_URL:      ${appUrl ? `✅ ${appUrl}` : "❌ not set — required for QStash triggers"}`);
+  if (!qstashOk) {
+    console.log("  ⚠️  Without QStash, one-time tasks run at 08:00 Praha (Vercel daily cron), not at the scheduled minute.");
+    console.log("  Setup: https://console.upstash.com/qstash → grab QSTASH_TOKEN, set APP_URL=https://your-app.vercel.app");
+  }
+  console.log();
+
   // ── 1. Vercel cron routes ──────────────────────────────────────────────────
   let cronRoutes = [];
   try {
@@ -123,6 +137,14 @@ async function run() {
       }
     }
     console.log();
+
+    // One-time tasks without QStash warning
+    const pendingOneTime = tasks.filter((t) => t.schedule_kind === "one_time" && t.is_active && !t.completed_at);
+    if (pendingOneTime.length > 0 && !qstashOk) {
+      console.log(`⚠️  ${pendingOneTime.length} pending one-time task(s) exist but QStash is NOT configured.`);
+      console.log("   These tasks will run in the next daily Vercel cron batch (08:00 Praha), not at their scheduled time.");
+      console.log();
+    }
 
     // Duplicate detection
     const seen = {};

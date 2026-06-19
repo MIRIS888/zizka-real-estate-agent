@@ -127,3 +127,14 @@ export function isFirecrawlConfigured() {
     FIRECRAWL_API_URL: process.env.FIRECRAWL_API_URL,
   }).success;
 }
+
+export function isQStashConfigured(): boolean {
+  return !!(process.env.QSTASH_TOKEN && process.env.APP_URL);
+}
+
+export function getQStashConfig(): { token: string; appUrl: string } {
+  const token = process.env.QSTASH_TOKEN;
+  const appUrl = process.env.APP_URL;
+  if (!token || !appUrl) throw new Error("QSTASH_TOKEN and APP_URL must be set for QStash scheduling.");
+  return { token, appUrl };
+}

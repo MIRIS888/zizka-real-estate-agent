@@ -43,6 +43,43 @@ Jeden endpoint `/api/cron/run-due-tasks` zpracovává všechny typy úloh:
 
 ---
 
+## Přesné plánování jednorázových úloh (QStash)
+
+Vercel Hobby plan umožňuje pouze 1 cron denně (06:00 UTC = 08:00 Praha). Jednorázové `one_time` tasky naplánované na konkrétní minutu (např. 13:30) se bez dalšího nastavení spustí až při nejbližším denním běhu.
+
+### Řešení: Upstash QStash
+
+QStash je free HTTP message scheduler (500 zpráv/den). Při vytvoření `one_time` tasku agent automaticky zavolá QStash API, které v přesný čas pošle POST na `/api/cron/run-due-tasks`. Existující `idempotency_key` zabraňuje duplicitám.
+
+### Nastavení QStash
+
+1. Zaregistruj se na https://console.upstash.com/qstash
+2. Zkopíruj `QSTASH_TOKEN`
+3. Nastav env proměnné:
+
+```env
+QSTASH_TOKEN=qstash_token_z_upstash_konzole
+APP_URL=https://tvoje-app.vercel.app
+```
+
+4. Přidej obě proměnné do Vercel project settings → Environment Variables
+
+### Chování bez QStash
+
+- `one_time` task se uloží do DB
+- Spustí se při nejbližším Vercel cron běhu (každý den 08:00 Praha)
+- Agent i UI jasně komunikují: „Spustí se v nejbližším denním běhu"
+
+### Ověření stavu scheduleru
+
+```bash
+npm run diagnose:cron
+```
+
+Výstup sekce `Scheduler:` ukáže, zda je QStash aktivní.
+
+---
+
 ## Autorizace
 
 Endpoint je chráněný:
