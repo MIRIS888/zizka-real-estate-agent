@@ -623,7 +623,9 @@ export function AgentChat({ initialThreadId }: { initialThreadId?: string } = {}
           token: parsed.confirmationToken,
           tool: parsed.pendingTool,
         });
-      } else if (!parsed.requiresConfirmation) {
+      } else {
+        // Always clear stale pending state when the server doesn't return a new token.
+        // Prevents a stale token from being re-sent on the next message.
         setPendingConfirmation(null);
       }
 

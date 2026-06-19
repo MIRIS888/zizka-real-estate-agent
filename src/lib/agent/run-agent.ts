@@ -382,23 +382,6 @@ function isConfirmationMessage(userMessage: string) {
   ].some((phrase) => normalized.includes(phrase));
 }
 
-function hasPendingConfirmation(history?: ChatHistoryItem[]) {
-  const lastAssistantMessage = [...(history ?? [])]
-    .reverse()
-    .find((item) => item.role === "assistant");
-
-  if (!lastAssistantMessage) return false;
-
-  const normalized = lastAssistantMessage.content.toLocaleLowerCase("cs-CZ");
-
-  return (
-    normalized.includes("potvr") ||
-    normalized.includes("souhlas") ||
-    normalized.includes("po potvrzení") ||
-    normalized.includes("po potvrzeni")
-  );
-}
-
 const ALWAYS_CONSEQUENTIAL = new Set<string>([
   "send_email",
   "send_morning_report",
@@ -421,41 +404,6 @@ function isConsequentialAction(action: FunctionToolCall): boolean {
   return false;
 }
 
-function userConfirmedPendingAction(userMessage: string, history?: ChatHistoryItem[]) {
-  return isConfirmationMessage(userMessage) && hasPendingConfirmation(history);
-}
-
-function asksForSending(userMessage: string) {
-  const normalized = userMessage.toLocaleLowerCase("cs-CZ");
-
-  return [
-    "pošli",
-    "posli",
-    "odešli",
-    "odesli",
-    "zašli",
-    "zasli",
-    "send",
-    "e-mail",
-    "email",
-  ].some((phrase) => normalized.includes(phrase));
-}
-
-function needsConfirmationBeforeFinish(
-  userMessage: string,
-  executions: ToolExecution[],
-  history?: ChatHistoryItem[],
-) {
-  if (userConfirmedPendingAction(userMessage, history)) return false;
-  if (!asksForSending(userMessage)) return false;
-
-  const latestExecution = getLatestExecution(executions);
-
-  return (
-    latestExecution?.toolName === "create_weekly_report" ||
-    latestExecution?.toolName === "create_email_draft"
-  );
-}
 
 function buildConfirmationMessage(action: FunctionToolCall) {
   if (action.toolName === "send_email") {
@@ -561,43 +509,6 @@ function buildConfirmationMessage(action: FunctionToolCall) {
   return "Tento krok má vedlejší efekt. Potvrďte prosím, že ho mám provést.";
 }
 
-function buildFinishConfirmationMessage(userMessage: string, executions: ToolExecution[]) {
-  const latestExecution = getLatestExecution(executions);
-
-  if (latestExecution?.toolName === "create_weekly_report") {
-    const result = latestExecution.result as {
-      report?: {
-        summary?: string;
-        slides?: Array<{ slide: number; title: string; content: string }>;
-      };
-    };
-    const summary = result.report?.summary ?? "Týdenní report je připravený.";
-    const slideSummary = (result.report?.slides ?? [])
-      .map((slide) => `Slide ${slide.slide}: ${slide.title} — ${slide.content}`)
-      .join("\n");
-    const body = [summary, slideSummary].filter(Boolean).join("\n\n");
-
-    return [
-      "Týdenní report je připravený.",
-      "Než ho odešlu, potřebuji potvrzení, protože odeslání e-mailu je vedlejší efekt.",
-      "Po potvrzení odešlu tento e-mail:",
-      "Komu: `vedeni@example.com`",
-      "Předmět: `Týdenní report pro vedení`",
-      `Text:\n${body}`,
-      "Potvrďte prosím odpovědí 'ano pošli'.",
-    ].join("\n\n");
-  }
-
-  if (latestExecution?.toolName === "create_email_draft") {
-    return [
-      "Návrh e-mailu je připravený.",
-      "Než ho odešlu, potřebuji potvrzení.",
-      "Potvrďte prosím odpovědí 'ano pošli'.",
-    ].join("\n\n");
-  }
-
-  return `Úkol vyžaduje potvrzení před pokračováním: ${userMessage}`;
-}
 
 function buildConfirmedActionMessage(
   action: FunctionToolCall,
@@ -2029,12 +1940,19 @@ export async function runAgent(
     );
 
     if (!isAuthorized) {
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[agent] confirmation fast-path: token INVALID (expired / wrong userId / payload mismatch)");
+      }
       return {
         intent: "general",
         requiresConfirmation: false,
         message:
           "Potvrzení se nepodařilo ověřit — platnost mohla vypršet nebo byl změněn obsah akce. Zadejte akci znovu.",
       };
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[agent] confirmation fast-path: token OK — executing ${options.pendingTool.toolName}`);
     }
 
     const confirmedAction: FunctionToolCall = {
@@ -2127,22 +2045,11 @@ export async function runAgent(
     }
     const functionCalls = getFunctionCalls(response);
 
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[agent] iter=${iteration} tool_calls=${functionCalls.length}${functionCalls.length > 0 ? ` (${functionCalls.map((f) => f.name).join(", ")})` : ""}`);
+    }
+
     if (functionCalls.length === 0) {
-      if (needsConfirmationBeforeFinish(userMessage, executions, options?.history)) {
-        const latestExecution = getLatestExecution(executions);
-        const artifacts = getAllArtifacts(executions);
-
-        return {
-          intent: latestExecution?.response.intent ?? "general",
-          requiresConfirmation: true,
-          source: latestExecution?.response.source,
-          artifact: latestExecution?.response.artifact,
-          artifacts: artifacts.length > 0 ? artifacts : undefined,
-          emailDraft: latestExecution?.response.emailDraft,
-          message: buildFinishConfirmationMessage(userMessage, executions),
-        };
-      }
-
       return createTextResponse(response.text ?? "Hotovo.", executions);
     }
 
@@ -2186,6 +2093,10 @@ export async function runAgent(
             ? generateConfirmationToken(options.userId, pendingTool, options.threadId)
             : null;
 
+          if (process.env.NODE_ENV !== "production") {
+            console.log(`[agent] intercepted consequential: ${action.toolName} → generated token: ${token ? "yes" : "no (no userId)"}`);
+          }
+
           return {
             intent: latestExecution?.response.intent ?? "general",
             requiresConfirmation: true,
@@ -2196,6 +2107,10 @@ export async function runAgent(
             message: buildConfirmationMessage(action),
             ...(token ? { confirmationToken: token, pendingTool } : {}),
           };
+        }
+
+        if (process.env.NODE_ENV !== "production") {
+          console.log(`[agent] token verified — executing confirmed: ${action.toolName}`);
         }
       }
 
