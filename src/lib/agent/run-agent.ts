@@ -472,8 +472,23 @@ function buildConfirmationMessage(action: FunctionToolCall) {
   if (action.toolName === "create_scheduled_task") {
     const raw = action.toolInput as Record<string, unknown>;
     const location = typeof raw.location === "string" ? raw.location : "vybraná lokalita";
-    const time = typeof raw.schedule_time === "string" ? raw.schedule_time : "nastavenou dobu";
-    return `Chystám se nastavit denní automatický přehled nabídek z **${location}** každý den v **${time}**. Úloha se uloží a bude vám chodit e-mailem. Potvrďte prosím odpovědí ’ano založ’.`;
+    const scheduleKind = typeof raw.schedule_kind === "string" ? raw.schedule_kind : "recurring";
+
+    if (scheduleKind === "one_time" && typeof raw.run_at === "string") {
+      const runAtDate = new Date(raw.run_at);
+      const localTime = new Intl.DateTimeFormat("cs-CZ", {
+        timeZone: "Europe/Prague",
+        weekday: "long",
+        day: "numeric",
+        month: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(runAtDate);
+      return `Mám nastavit **jednorázový** realitní přehled pro **${location}** na **${localTime}** a poslat výsledky e-mailem? Potvrďte prosím odpovědí ‘ano založ’.`;
+    }
+
+    const time = typeof raw.schedule_time === "string" ? raw.schedule_time : "08:00";
+    return `Chystám se nastavit denní automatický přehled nabídek z **${location}** každý den v **${time}**. Úloha se uloží a bude vám chodit e-mailem. Potvrďte prosím odpovědí ‘ano založ’.`;
   }
 
   if (action.toolName === "update_scheduled_task") {
@@ -616,6 +631,14 @@ function buildConfirmedActionMessage(
       : "Hotovo, ranní report byl odeslán e-mailem.";
   }
   if (action.toolName === "create_scheduled_task") {
+    const result = execution.result as { created?: boolean; reason?: string; localTime?: string };
+    if (result?.reason === "past_datetime") {
+      const t = result.localTime ?? "";
+      return `Čas ${t} už dnes proběhl. Chcete to naplánovat na zítra ve stejnou dobu?`;
+    }
+    if (result?.reason === "missing_run_at") {
+      return "Pro jednorázovou úlohu je potřeba zadat přesný čas. Zkuste to prosím znovu.";
+    }
     return execution.isEmpty
       ? "Naplánovanou úlohu se nepodařilo vytvořit."
       : "Hotovo, naplánovaná úloha byla vytvořena.";
@@ -1242,10 +1265,64 @@ async function executeToolAction(
     }
 
     const input = CreateScheduledTaskAgentInputSchema.parse(action.toolInput);
+    const isOneTime = input.schedule_kind === "one_time";
+
+    // Validate one_time: run_at must be present and in the future
+    if (isOneTime) {
+      if (!input.run_at) {
+        return {
+          toolName: action.toolName,
+          toolInput: input,
+          result: { created: false, reason: "missing_run_at", isMock: false, isEmpty: true },
+          isMock: false,
+          isEmpty: true,
+          response: {
+            intent: "general",
+            requiresConfirmation: false,
+            source: { label: "Chybějící čas", detail: "Pro jednorázovou úlohu musí být zadán přesný čas (run_at).", mode: "live" },
+          },
+        };
+      }
+      const runAtDate = new Date(input.run_at);
+      if (runAtDate <= new Date()) {
+        const localTime = new Intl.DateTimeFormat("cs-CZ", {
+          timeZone: input.timezone,
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(runAtDate);
+        return {
+          toolName: action.toolName,
+          toolInput: input,
+          result: { created: false, reason: "past_datetime", localTime, isMock: false, isEmpty: true },
+          isMock: false,
+          isEmpty: true,
+          response: {
+            intent: "general",
+            requiresConfirmation: false,
+            source: { label: "Čas v minulosti", detail: `Čas ${localTime} už proběhl.`, mode: "live" },
+          },
+        };
+      }
+    }
+
     const task = await createScheduledTask(options.userId, {
       ...input,
       recipient_email: options.userEmail,
     });
+
+    const tz = input.timezone;
+    const rows = isOneTime
+      ? [
+          { položka: "Lokalita", hodnota: input.location },
+          { položka: "Typ", hodnota: "Jednorázový přehled" },
+          { položka: "Naplánováno na", hodnota: new Date(task.next_run_at).toLocaleString("cs-CZ", { timeZone: tz }) },
+        ]
+      : [
+          { položka: "Lokalita", hodnota: input.location },
+          { položka: "Čas odeslání", hodnota: input.schedule_time ?? "08:00" },
+          { položka: "Frekvence", hodnota: "každý den" },
+          { položka: "První spuštění", hodnota: new Date(task.next_run_at).toLocaleString("cs-CZ", { timeZone: tz }) },
+        ];
 
     return {
       toolName: action.toolName,
@@ -1258,19 +1335,16 @@ async function executeToolAction(
         requiresConfirmation: false,
         source: {
           label: "Naplánovaná úloha",
-          detail: `Denní přehled pro ${input.location} v ${input.schedule_time} byl uložen.`,
+          detail: isOneTime
+            ? `Jednorázový přehled pro ${input.location} byl naplánován.`
+            : `Denní přehled pro ${input.location} v ${input.schedule_time ?? "08:00"} byl uložen.`,
           mode: "live",
         },
         artifact: {
           type: "table",
-          title: "Naplánovaná úloha",
+          title: isOneTime ? "Jednorázová úloha" : "Naplánovaná úloha",
           columns: ["položka", "hodnota"],
-          rows: [
-            { položka: "Lokalita", hodnota: input.location },
-            { položka: "Čas odeslání", hodnota: input.schedule_time },
-            { položka: "Frekvence", hodnota: "každý den" },
-            { položka: "První spuštění", hodnota: new Date(task.next_run_at).toLocaleString("cs-CZ", { timeZone: input.timezone }) },
-          ],
+          rows,
         },
       },
     };

@@ -96,6 +96,9 @@ const ScheduledTaskRowSchema = z.object({
   params: z.record(z.string(), z.unknown()),
   schedule_time: z.string(),
   schedule_days: z.array(z.number()).nullable(),
+  schedule_kind: z.enum(["one_time", "recurring"]).default("recurring"),
+  run_once: z.boolean().default(false),
+  completed_at: z.string().nullable().default(null),
   timezone: z.string(),
   frequency: z.literal("daily"),
   is_active: z.boolean(),
@@ -111,7 +114,10 @@ export const CreateScheduledTaskInputSchema = z.object({
   task_type: z.literal("market_digest"),
   location: z.string().min(1),
   transaction: z.enum(["sale", "rent"]).default("sale"),
-  schedule_time: z.string().regex(/^\d{2}:\d{2}$/),
+  // schedule_kind: "one_time" requires run_at; "recurring" requires schedule_time
+  schedule_kind: z.enum(["one_time", "recurring"]).default("recurring"),
+  run_at: z.string().optional(), // ISO8601 with UTC offset, e.g. "2026-06-19T13:30:00+02:00"
+  schedule_time: z.string().regex(/^\d{2}:\d{2}$/).optional(), // HH:MM for recurring
   timezone: z.string().min(1).default("Europe/Prague"),
   frequency: z.literal("daily").default("daily"),
   recipient_email: z.string().optional(),
@@ -129,6 +135,21 @@ export const UpdateScheduledTaskInputSchema = z.object({
 
 export type UpdateScheduledTaskInput = z.infer<typeof UpdateScheduledTaskInputSchema>;
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// Extracts "HH:MM" from an ISO timestamp in the given timezone.
+function extractLocalTime(date: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return `${(h === "24" ? "00" : h).padStart(2, "0")}:${m.padStart(2, "0")}`;
+}
+
 // ─── Service functions ────────────────────────────────────────────────────────
 
 export async function createScheduledTask(
@@ -137,7 +158,21 @@ export async function createScheduledTask(
 ): Promise<ScheduledTask> {
   const supabase = createSupabaseServiceClient();
   const now = new Date().toISOString();
-  const nextRunAt = computeNextRunAt(input.schedule_time, input.timezone);
+
+  let scheduleTime: string;
+  let nextRunAt: Date;
+  const isOneTime = input.schedule_kind === "one_time";
+
+  if (isOneTime) {
+    if (!input.run_at) throw new Error("run_at is required for one_time tasks");
+    const runAtDate = new Date(input.run_at);
+    scheduleTime = extractLocalTime(runAtDate, input.timezone);
+    nextRunAt = runAtDate;
+  } else {
+    const time = input.schedule_time ?? "08:00";
+    scheduleTime = time;
+    nextRunAt = computeNextRunAt(time, input.timezone);
+  }
 
   const { data, error } = await supabase
     .from("scheduled_tasks")
@@ -149,7 +184,9 @@ export async function createScheduledTask(
         transaction: input.transaction,
         ...(input.recipient_email ? { recipient_email: input.recipient_email } : {}),
       },
-      schedule_time: input.schedule_time,
+      schedule_time: scheduleTime,
+      schedule_kind: input.schedule_kind ?? "recurring",
+      run_once: isOneTime,
       timezone: input.timezone,
       frequency: input.frequency,
       is_active: true,
@@ -288,4 +325,21 @@ export async function markTaskRun(
     .eq("id", id);
 
   if (error) throw new Error(`Nepodařilo se aktualizovat stav úlohy: ${error.message}`);
+}
+
+// Marks a one-time task as completed — deactivates it, sets completed_at.
+export async function markTaskComplete(id: string): Promise<void> {
+  const supabase = createSupabaseServiceClient();
+  const now = new Date();
+  const { error } = await supabase
+    .from("scheduled_tasks")
+    .update({
+      is_active: false,
+      completed_at: now.toISOString(),
+      last_run_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) throw new Error(`Nepodařilo se dokončit úlohu: ${error.message}`);
 }

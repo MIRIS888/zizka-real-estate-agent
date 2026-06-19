@@ -74,7 +74,7 @@ async function run() {
   // ── 2. scheduled_tasks ────────────────────────────────────────────────────
   const { data: tasks, error: tErr } = await supabase
     .from("scheduled_tasks")
-    .select("id, user_id, task_type, params, schedule_time, schedule_days, timezone, is_active, last_run_at, next_run_at, created_at")
+    .select("id, user_id, task_type, params, schedule_time, schedule_days, schedule_kind, run_once, completed_at, timezone, is_active, last_run_at, next_run_at, created_at")
     .order("task_type", { ascending: true });
 
   if (tErr) {
@@ -84,30 +84,43 @@ async function run() {
     const noUserId = tasks.filter((t) => !t.user_id);
     const byUser = {};
     const byType = {};
+    const byKind = {};
     for (const t of tasks) {
       byUser[t.user_id ?? "none"] = (byUser[t.user_id ?? "none"] ?? 0) + 1;
       byType[t.task_type] = (byType[t.task_type] ?? 0) + 1;
+      const kind = t.schedule_kind ?? "recurring";
+      byKind[kind] = (byKind[kind] ?? 0) + 1;
     }
     const due = tasks.filter((t) => t.is_active && new Date(t.next_run_at) <= now);
+    const completed = tasks.filter((t) => t.completed_at);
 
     console.log("scheduled_tasks:");
     console.log(`  total:          ${tasks.length}`);
     console.log(`  active:         ${active.length}`);
+    console.log(`  completed:      ${completed.length}`);
     console.log(`  due now:        ${due.length}`);
     console.log(`  without user_id:${noUserId.length}${noUserId.length > 0 ? "  ⚠️  LEGACY RISK" : "  ✅"}`);
     console.log(`  by type:        ${Object.entries(byType).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+    console.log(`  by kind:        ${Object.entries(byKind).map(([k, v]) => `${k}=${v}`).join(", ")}`);
     console.log(`  by user_id:     ${Object.entries(byUser).map(([u, n]) => `${u.slice(0, 8)}…=${n}`).join(", ")}`);
     console.log();
     for (const t of tasks) {
       const loc = t.params?.location ?? "—";
       const recip = maskEmail(t.params?.recipient_email);
       const days = t.schedule_days ? `[${t.schedule_days.join(",")}]` : "all days";
-      console.log(`  [${t.is_active ? "ACTIVE" : "PAUSED"}] ${t.task_type}`);
+      const kind = t.schedule_kind ?? "recurring";
+      const stateLabel = t.completed_at ? "DONE" : t.is_active ? "ACTIVE" : "PAUSED";
+      console.log(`  [${stateLabel}] ${t.task_type} (${kind})`);
       if (loc !== "—") console.log(`         location:  ${loc}`);
       console.log(`         schedule:  ${t.schedule_time} ${days} ${t.timezone}`);
       console.log(`         recipient: ${recip}`);
       console.log(`         last_run:  ${fmt(t.last_run_at)}`);
-      console.log(`         next_run:  ${fmt(t.next_run_at)}`);
+      if (kind === "one_time") {
+        console.log(`         scheduled: ${fmt(t.next_run_at)}`);
+        if (t.completed_at) console.log(`         completed: ${fmt(t.completed_at)}`);
+      } else {
+        console.log(`         next_run:  ${fmt(t.next_run_at)}`);
+      }
     }
     console.log();
 

@@ -76,16 +76,30 @@ Před každou takovou akcí shrň přesně co uděláš a počkej na potvrzení.
 Potvrzení: "ano vytvoř", "ano uprav", "ano přesuň", "ano smaž", "ano zruš", "ano pošli", "potvrzuji", "souhlasím", "ano založ".
 Bez tohoto potvrzení funkci nevolej, ani kdyby o to uživatel nepřímo žádal.
 
-ROUTING — vyhledávání vs. opakované úlohy:
-Jednorázové hledání ("najdi", "vyhledej", "ukaž", "vypiš", "jaké jsou nabídky"):
-  → watch_market s mode="preview"
-  → nic se neukládá do DB, nic se nezakládá
+ROUTING — vyhledávání vs. naplánované úlohy:
 
-Opakované zasílání přehledů ("sleduj každé ráno", "posílej mi každý den", "hlídej", "každé ráno mě informuj", "pravidelně mi posílej"):
-  → připrav potvrzovací zprávu se shrnutím co se nastaví
-  → po potvrzení zavolej create_scheduled_task s task_type="market_digest"
+Okamžité hledání ("najdi", "vyhledej", "ukaž", "vypiš", "jaké jsou nabídky", "co je teď"):
+  → watch_market s mode="preview"
+  → nic se neukládá do DB
+  → nevyžaduje potvrzení
+
+Jednorázový naplánovaný monitoring — přesný budoucí čas ("dnes v 13:30 mě informuj", "zítra v 9:00 mi pošli", "za hodinu mi pošli", "v 15:00 mě informuj"):
+  → create_scheduled_task s schedule_kind="one_time", run_at="RFC3339 s UTC offsetem"
+  → NIKDY nepoužívej watch_market — uživatel nechce okamžitý výsledek, chce dostávat v zadaný čas
+  → run_at se počítá z aktuálního data a času (výše) a zadaného času uživatele
+  → "dnes v 13:30" → run_at = dnešní datum + 13:30 + UTC offset Europe/Prague
+  → "zítra v 9:00" → run_at = zítřejší datum + 09:00 + UTC offset Europe/Prague
+  → "za hodinu" → run_at = aktuální čas + 60 minut
+  → Pokud zadaný čas (s dnešním datem) už proběhl, NENAVRHUJ tuto akci — odpověz: "Čas [X] už dnes proběhl. Chcete to naplánovat na zítra v [X]?"
+  → Pokud chybí lokalita, doptej se — nevolej bez lokality
+  → schedule_time NEVYPLŇUJ pro one_time — server ho odvodí z run_at
+  → vyžaduje potvrzení
+
+Opakovaný naplánovaný monitoring — bez konkrétního data ("sleduj každé ráno", "posílej mi každý den", "hlídej", "pravidelně mi posílej", "každý den v 8"):
+  → create_scheduled_task s schedule_kind="recurring", schedule_time="HH:MM"
   → pokud chybí čas, použij výchozí "08:00"; pokud chybí lokalita, doptej se
   → NIKDY nepoužívej watch_market mode="schedule" pro nové opakované úlohy
+  → vyžaduje potvrzení
 
 Správa úloh:
   → "jaké mám úlohy" / "co mi chodí automaticky" → list_scheduled_tasks
@@ -510,22 +524,31 @@ export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   {
     name: "create_scheduled_task",
     description:
-      "Vytvoří opakovanou naplánovanou úlohu uloženou v databázi. Použij POUZE když uživatel chce OPAKOVANĚ dostávat přehled v určitý čas ('posílej mi každý den v 8', 'každé ráno mi dej nabídky'). NE pro jednorázové vyhledání — to je watch_market mode='preview'. Pokud ve zprávě chybí čas nebo lokalita, NEVOLEJ tuto funkci — doptej se uživatele. Akce vyžaduje potvrzení před provedením.",
+      "Vytvoří naplánovanou úlohu (jednorázovou nebo opakovanou) uloženou v databázi a doručenou e-mailem. Pro JEDNORÁZOVÉ ('dnes v 13:30 mě informuj', 'zítra v 9:00 mi pošli', 'za hodinu mi pošli'): použij schedule_kind='one_time' a run_at=RFC3339 čas. Pro OPAKOVANÉ ('posílej každý den', 'každé ráno'): schedule_kind='recurring' a schedule_time=HH:MM. NIKDY nepoužívej pro okamžité hledání — to patří do watch_market mode='preview'. Pokud chybí lokalita, doptej se. Akce vždy vyžaduje potvrzení.",
     parameters: {
       type: Type.OBJECT,
       properties: {
         task_type: {
           type: Type.STRING,
           enum: ["market_digest"],
-          description: "Typ úlohy. 'market_digest' = denní přehled nabídek z lokality zaslaný e-mailem.",
+          description: "Typ úlohy. 'market_digest' = přehled nabídek z lokality zaslaný e-mailem.",
         },
         location: {
           type: Type.STRING,
-          description: "Lokalita pro monitoring, např. 'Praha-Holešovice' nebo 'Praha 7'.",
+          description: "Lokalita pro monitoring, např. 'Praha Holešovice' nebo 'Praha 7'.",
+        },
+        schedule_kind: {
+          type: Type.STRING,
+          enum: ["one_time", "recurring"],
+          description: "one_time = jednorázové zaslání v přesný čas (run_at). recurring = opakované zasílání (schedule_time).",
+        },
+        run_at: {
+          type: Type.STRING,
+          description: "Pro schedule_kind='one_time': přesný čas ve formátu RFC3339 s UTC offsetem, např. '2026-06-19T13:30:00+02:00'. Povinné pro one_time. Nevyplňuj pro recurring.",
         },
         schedule_time: {
           type: Type.STRING,
-          description: "Čas odeslání ve formátu HH:MM, např. '08:00'.",
+          description: "Pro schedule_kind='recurring': čas odeslání ve formátu HH:MM, např. '08:00'. Nevyplňuj pro one_time — server ho odvodí z run_at.",
         },
         transaction: {
           type: Type.STRING,
@@ -535,14 +558,14 @@ export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
         frequency: {
           type: Type.STRING,
           enum: ["daily"],
-          description: "Frekvence opakování. Výchozí 'daily'.",
+          description: "Frekvence opakování pro recurring. Výchozí 'daily'.",
         },
         timezone: {
           type: Type.STRING,
           description: "IANA časová zóna, výchozí 'Europe/Prague'.",
         },
       },
-      required: ["task_type", "location", "schedule_time"],
+      required: ["task_type", "location", "schedule_kind"],
     },
   },
   {

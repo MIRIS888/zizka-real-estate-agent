@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isCronAuthorized } from "@/lib/cron/auth";
-import { getDueScheduledTasks, markTaskRun, type ScheduledTask } from "@/lib/tasks/scheduled-tasks";
+import { getDueScheduledTasks, markTaskComplete, markTaskRun, type ScheduledTask } from "@/lib/tasks/scheduled-tasks";
 import { searchMarketListings } from "@/lib/tools/market-search";
 import { buildMorningReport } from "@/lib/tools/morning-report";
 import { loadAndRefreshGoogleAccount } from "@/lib/google/token-store";
@@ -153,7 +153,11 @@ async function runMarketDigest(
       });
     }
 
-    await markTaskRun(task.id, task.schedule_time, task.timezone, task.schedule_days);
+    if (task.run_once) {
+      await markTaskComplete(task.id);
+    } else {
+      await markTaskRun(task.id, task.schedule_time, task.timezone, task.schedule_days);
+    }
     const meta = { listingCount: listings.length, location };
     await updateRunRecord(supabase, runId, "success", meta);
     return { taskId: task.id, taskType: task.task_type, sentTo: recipientEmail, ok: true, meta };

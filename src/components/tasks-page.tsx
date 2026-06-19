@@ -60,24 +60,29 @@ function formatLocalTime(isoString: string | null, timezone = "Europe/Prague") {
   }).format(new Date(isoString));
 }
 
-function FrequencyBadge({ frequency }: { frequency: string }) {
+function FrequencyBadge({ task }: { task: TaskWithRun }) {
+  let label: string;
+  if (task.task_type === "morning_report") label = "Po–Pá";
+  else if (task.schedule_kind === "one_time") label = "Jednorázová";
+  else label = "každý den";
   return (
     <span className="rounded bg-[var(--surface)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--foreground-muted)]">
-      {frequency === "daily" ? "každý den" : frequency}
+      {label}
     </span>
   );
 }
 
-function StatusBadge({ isActive }: { isActive: boolean }) {
+function StatusBadge({ task }: { task: TaskWithRun }) {
+  const isCompleted = task.schedule_kind === "one_time" && !!task.completed_at;
+  const label = isCompleted ? "Dokončeno" : task.is_active ? "Aktivní" : "Pozastavená";
+  const bg = isCompleted ? "var(--surface-muted)" : task.is_active ? "#1D4D3818" : "var(--surface-muted)";
+  const color = isCompleted ? "var(--foreground-muted)" : task.is_active ? "var(--primary)" : "var(--foreground-muted)";
   return (
     <span
       className="rounded px-2 py-0.5 text-[10px] font-semibold"
-      style={{
-        backgroundColor: isActive ? "#1D4D3818" : "var(--surface-muted)",
-        color: isActive ? "var(--primary)" : "var(--foreground-muted)",
-      }}
+      style={{ backgroundColor: bg, color }}
     >
-      {isActive ? "Aktivní" : "Pozastavená"}
+      {label}
     </span>
   );
 }
@@ -291,8 +296,8 @@ export function TasksPage() {
                           <span className="text-sm font-semibold text-[var(--foreground)]">
                             {taskLabel(task)}
                           </span>
-                          <StatusBadge isActive={task.is_active} />
-                          <FrequencyBadge frequency={task.task_type === "morning_report" ? "Po–Pá" : task.frequency} />
+                          <StatusBadge task={task} />
+                          <FrequencyBadge task={task} />
                           {params.transaction === "rent" && (
                             <span className="rounded bg-[var(--accent-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
                               pronájem
@@ -312,10 +317,24 @@ export function TasksPage() {
                             <Clock className="size-3 shrink-0" />
                             {task.schedule_time} ({task.timezone.replace("Europe/", "")})
                           </span>
-                          <span className="flex items-center gap-1.5">
-                            <Calendar className="size-3 shrink-0" />
-                            Příště: {formatLocalTime(task.next_run_at, task.timezone)}
-                          </span>
+                          {task.schedule_kind === "one_time" ? (
+                            task.completed_at ? (
+                              <span className="flex items-center gap-1.5">
+                                <Calendar className="size-3 shrink-0" />
+                                Dokončeno: {formatLocalTime(task.completed_at, task.timezone)}
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1.5">
+                                <Calendar className="size-3 shrink-0" />
+                                Naplánováno: {formatLocalTime(task.next_run_at, task.timezone)}
+                              </span>
+                            )
+                          ) : (
+                            <span className="flex items-center gap-1.5">
+                              <Calendar className="size-3 shrink-0" />
+                              Příště: {formatLocalTime(task.next_run_at, task.timezone)}
+                            </span>
+                          )}
                           {task.last_run_at && (
                             <span className="flex items-center gap-1.5">
                               <Calendar className="size-3 shrink-0 opacity-60" />

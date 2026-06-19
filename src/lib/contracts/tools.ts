@@ -77,7 +77,9 @@ export const CreateScheduledTaskAgentInputSchema = z.object({
   task_type: z.literal("market_digest"),
   location: z.string().min(1),
   transaction: z.enum(["sale", "rent"]).default("sale"),
-  schedule_time: z.string().regex(/^\d{2}:\d{2}$/),
+  schedule_kind: z.enum(["one_time", "recurring"]).default("recurring"),
+  run_at: z.string().optional(),
+  schedule_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   frequency: z.literal("daily").default("daily"),
   timezone: z.string().min(1).default("Europe/Prague"),
 });
