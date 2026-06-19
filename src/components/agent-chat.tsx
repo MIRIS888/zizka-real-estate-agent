@@ -64,6 +64,8 @@ type GoogleStatus = {
   configured: boolean;
   connected: boolean;
   scopes: string[];
+  email?: string;
+  hasRequiredScopes?: boolean;
 };
 
 type QuickPrompt = {
@@ -762,7 +764,9 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
             <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
               <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
               <span className="flex-1 truncate text-xs text-[var(--foreground-muted)]">
-                Google připojen
+                {googleStatus.email
+                  ? `Google: ${googleStatus.email}`
+                  : "Google připojen"}
               </span>
               <button
                 type="button"
@@ -786,7 +790,7 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
                   googleStatus?.configured ? "bg-amber-400" : "bg-[var(--border-strong)]"
                 }`}
               />
-              Připojit Google
+              Připojit Google pro Gmail/Kalendář
             </a>
           )}
 
@@ -815,6 +819,8 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
           <button
             type="button"
             onClick={async () => {
+              setGoogleStatus(null);
+              await fetch("/api/auth/google/clear-cookie", { method: "POST" });
               const supabase = createSupabaseBrowserClient();
               await supabase.auth.signOut();
               window.location.href = "/login";
