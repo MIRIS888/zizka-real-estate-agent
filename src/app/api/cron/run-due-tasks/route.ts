@@ -123,9 +123,15 @@ async function runMarketDigest(
   supabase: ReturnType<typeof createSupabaseServiceClient>,
   task: ScheduledTask,
 ): Promise<RunResult> {
-  const params = task.params as { location: string; transaction?: string; recipient_email?: string };
+  const params = task.params as { location: string; transaction?: string; recipient_email?: string; _test_only?: boolean };
   const location = params.location;
   const transaction = params.transaction === "rent" ? "rent" : "sale";
+
+  // Test tasks created by scripts/test-qstash.mjs — skip actual API calls and email
+  if (params._test_only === true) {
+    if (task.run_once) await markTaskComplete(task.id);
+    return { taskId: task.id, taskType: task.task_type, sentTo: null, ok: true, skipped: true };
+  }
 
   const account = await loadAndRefreshGoogleAccount(task.user_id);
 

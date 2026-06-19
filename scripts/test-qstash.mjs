@@ -1,30 +1,23 @@
 /**
  * QStash end-to-end integration test.
- * Usage: npm run test:qstash
  *
- * What this does:
- *   1. Verifies all required env vars are present
- *   2. Creates a real one_time scheduled_task in Supabase (task_type=market_digest, Praha - Žižkov)
- *      with next_run_at = now + DELAY_MINUTES
- *   3. Schedules a QStash trigger for that time
- *   4. Prints the QStash message ID and a checklist to verify delivery
- *   5. Cleans up the test task unless --keep flag is passed
+ * Usage:
+ *   npm run test:qstash           — create task, schedule QStash, wait, verify, cleanup
+ *   npm run test:qstash:dry       — env check only, no DB/QStash calls
+ *   npm run test:qstash:cleanup   — delete all _test_only tasks from DB
  *
- * Requirements:
- *   .env.local with QSTASH_URL, QSTASH_TOKEN, APP_URL, CRON_SECRET,
- *   NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DEFAULT_ORGANIZATION_ID
- *
+ * Test tasks use params._test_only = true so run-due-tasks skips real API calls and email.
  * NEVER outputs QSTASH_TOKEN, CRON_SECRET, or SUPABASE_SERVICE_ROLE_KEY.
  */
 
 import { readFileSync, existsSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
-const DELAY_MINUTES = 7;
+const DELAY_MINUTES = 3;
 const TEST_LOCATION = "Praha - Žižkov (QStash test)";
 const ARGS = process.argv.slice(2);
-const KEEP = ARGS.includes("--keep");
-const DRY_RUN = ARGS.includes("--dry");
+const DRY_RUN = ARGS.includes("--dry") || ARGS[0] === "dry";
+const CLEANUP = ARGS.includes("--cleanup") || ARGS[0] === "cleanup";
 
 function loadDotEnv() {
   const envPath = ".env.local";
@@ -55,8 +48,6 @@ const APP_URL      = require_env("APP_URL").replace(/\/$/, "");
 const CRON_SECRET  = require_env("CRON_SECRET");
 const SB_URL       = require_env("NEXT_PUBLIC_SUPABASE_URL");
 const SB_KEY       = require_env("SUPABASE_SERVICE_ROLE_KEY");
-// DEFAULT_ORGANIZATION_ID required but not in scheduled_tasks schema — verify env is complete
-require_env("DEFAULT_ORGANIZATION_ID");
 
 const TARGET_URL = `${APP_URL}/api/cron/run-due-tasks`;
 const supabase = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
@@ -84,6 +75,7 @@ async function createTestTask(userId, runAt) {
         location: TEST_LOCATION,
         locationQuery: TEST_LOCATION,
         transaction: "sale",
+        _test_only: true,  // run-due-tasks skips real API calls and email for test tasks
       },
       schedule_kind: "one_time",
       run_once: true,
@@ -109,27 +101,40 @@ async function scheduleQStash(runAt, taskId) {
       Authorization: `Bearer ${QSTASH_TOKEN}`,
       "Content-Type": "application/json",
       "Upstash-Not-Before": String(notBefore),
-      "Upstash-Retries": "2",
+      "Upstash-Retries": "0",  // no retries for tests — one delivery is enough
       "Upstash-Forward-Authorization": `Bearer ${CRON_SECRET}`,
-      "Upstash-Message-Id": `qstash-test-${taskId}`,
     },
     body: JSON.stringify({ source: "qstash_test", taskId }),
   });
   const body = await response.json();
-  if (!response.ok) {
-    throw new Error(`QStash API error ${response.status}: ${JSON.stringify(body)}`);
-  }
+  if (!response.ok) throw new Error(`QStash API error ${response.status}: ${JSON.stringify(body)}`);
   return body;
 }
 
-async function deleteTestTask(taskId) {
+async function deleteTask(taskId) {
   await supabase.from("scheduled_tasks").delete().eq("id", taskId);
+}
+
+async function cleanupAllTestTasks() {
+  const { data, error } = await supabase
+    .from("scheduled_tasks")
+    .select("id, next_run_at, is_active, completed_at")
+    .filter("params->_test_only", "eq", "true");
+
+  if (error) { console.error("❌  cleanup query failed:", error.message); return; }
+  if (!data || data.length === 0) { console.log("  No _test_only tasks found."); return; }
+
+  for (const t of data) {
+    await supabase.from("scheduled_tasks").delete().eq("id", t.id);
+    console.log(`  deleted: ${t.id} (active=${t.is_active}, done=${!!t.completed_at})`);
+  }
+  console.log(`  ${data.length} task(s) deleted.`);
 }
 
 async function checkTaskStatus(taskId) {
   const { data } = await supabase
     .from("scheduled_tasks")
-    .select("id, is_active, completed_at, last_run_at, next_run_at")
+    .select("id, is_active, completed_at, last_run_at")
     .eq("id", taskId)
     .single();
   return data;
@@ -138,23 +143,32 @@ async function checkTaskStatus(taskId) {
 async function checkTaskRuns(taskId) {
   const { data } = await supabase
     .from("scheduled_task_runs")
-    .select("id, status, started_at, finished_at, error_message, idempotency_key")
+    .select("id, status, started_at, finished_at, idempotency_key")
     .eq("task_id", taskId)
     .order("started_at", { ascending: false });
   return data ?? [];
 }
 
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
 async function run() {
   console.log("\n=== QStash E2E Integration Test ===\n");
 
   if (DRY_RUN) {
-    console.log("Dry run — verifying env only, skipping DB/QStash calls.\n");
+    console.log("Dry run — env check only.\n");
     console.log(`  QSTASH_URL:    ✅ ${QSTASH_URL}`);
     console.log(`  QSTASH_TOKEN:  ✅ set`);
     console.log(`  APP_URL:       ✅ ${APP_URL}`);
     console.log(`  CRON_SECRET:   ✅ set`);
     console.log(`  TARGET_URL:    ${TARGET_URL}`);
     console.log("\nDry run complete.\n");
+    return;
+  }
+
+  if (CLEANUP) {
+    console.log("Cleanup mode — deleting all _test_only tasks from DB...\n");
+    await cleanupAllTestTasks();
+    console.log("\nDone.\n");
     return;
   }
 
@@ -166,10 +180,10 @@ async function run() {
   // 2. Calculate run time
   const runAt = new Date(Date.now() + DELAY_MINUTES * 60 * 1000);
   const localRunAt = runAt.toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
-  console.log(`2. Test task will run at: ${localRunAt} Prague (UTC: ${runAt.toISOString()})\n`);
+  console.log(`2. Test task scheduled for: ${localRunAt} Prague (+${DELAY_MINUTES} min)\n`);
 
   // 3. Create task in DB
-  console.log("3. Creating one_time scheduled_task in DB...");
+  console.log("3. Creating _test_only scheduled_task in DB...");
   let task;
   try {
     task = await createTestTask(user.id, runAt);
@@ -187,49 +201,52 @@ async function run() {
     qstashResult = await scheduleQStash(runAt, task.id);
     console.log(`   ✅ QStash message scheduled`);
     console.log(`   messageId: ${qstashResult.messageId ?? "(not returned)"}`);
-    console.log(`   scheduled: ${localRunAt} Prague\n`);
+    console.log(`   no-retry: 0 retries configured (test mode)\n`);
   } catch (err) {
     console.error(`❌  QStash scheduling failed: ${err.message}`);
-    if (!KEEP) await deleteTestTask(task.id);
+    await deleteTask(task.id);
     process.exit(1);
   }
 
-  // 5. Print checklist
-  console.log("5. Checklist — verify after the scheduled time:\n");
-  console.log(`   a) Upstash Console → QStash → Messages`);
-  console.log(`      → Look for messageId: ${qstashResult.messageId ?? "(check console)"}`);
-  console.log(`      → Target: ${TARGET_URL}`);
-  console.log(`      → Should show: DELIVERED / SUCCESS after ${localRunAt}`);
-  console.log();
-  console.log(`   b) Supabase → scheduled_task_runs`);
-  console.log(`      → task_id = ${task.id}`);
-  console.log(`      → status should be: success (or skipped if already ran)`);
-  console.log();
-  console.log(`   c) Supabase → scheduled_tasks`);
-  console.log(`      → id = ${task.id}`);
-  console.log(`      → is_active should be: false`);
-  console.log(`      → completed_at should be: not null`);
-  console.log();
-  console.log(`   d) Email`);
-  console.log(`      → Check inbox for "Realitní přehled – ${TEST_LOCATION}"`);
-  console.log();
+  // 5. Wait for delivery
+  const waitMs = (DELAY_MINUTES * 60 + 45) * 1000;
+  const waitMin = Math.ceil(waitMs / 60000);
+  console.log(`5. Waiting ${waitMin} minutes for QStash delivery...`);
+  console.log(`   (Upstash Console → QStash → Messages → ${qstashResult.messageId ?? "check console"})`);
 
-  if (KEEP) {
-    console.log(`Task kept in DB (--keep flag). To check later:\n  npm run test:qstash:check -- ${task.id}\n`);
-  } else {
-    console.log("Waiting 10 seconds, then checking task status once...");
-    await new Promise((r) => setTimeout(r, 10000));
-    const status = await checkTaskStatus(task.id);
-    const runs = await checkTaskRuns(task.id);
-    console.log(`\nImmediate check (before QStash fires):`);
-    console.log(`  task.is_active:   ${status?.is_active}`);
-    console.log(`  task.completed_at: ${status?.completed_at ?? "null (expected — not fired yet)"}`);
-    console.log(`  runs recorded:    ${runs.length} (expected 0 — not fired yet)`);
-    console.log(`\nLeave the task in DB for QStash delivery. Re-run with --keep to skip deletion.\n`);
-    // Don't delete — leave for QStash to fire
+  await sleep(waitMs);
+
+  // 6. Verify
+  console.log("\n6. Verifying...");
+  const status = await checkTaskStatus(task.id);
+  const runs = await checkTaskRuns(task.id);
+
+  const taskDone = status?.completed_at != null;
+  const taskRan = runs.length > 0;
+  const runStatus = runs[0]?.status;
+
+  console.log(`   task.is_active:   ${status?.is_active} (expected: false)`);
+  console.log(`   task.completed_at: ${status?.completed_at ?? "null"} (expected: not null)`);
+  console.log(`   runs recorded:    ${runs.length} (expected: 1)`);
+  if (runs[0]) console.log(`   run status:       ${runStatus} (expected: success)`);
+
+  const passed = taskDone && taskRan && runStatus === "success";
+  console.log(`\n   ${passed ? "✅ PASS" : "❌ FAIL"} — QStash delivery ${passed ? "confirmed" : "NOT confirmed"}`);
+
+  if (!passed) {
+    console.log("\n   Possible causes:");
+    console.log("   - CRON_SECRET in .env.local differs from Vercel CRON_SECRET → QStash gets 401");
+    console.log("   - Vercel deploy of QStash fix not yet live");
+    console.log(`   - Check Upstash Console for message status: ${qstashResult.messageId ?? "see console"}`);
   }
 
-  console.log("=== Test scheduled. Monitor QStash console and DB after the scheduled time. ===\n");
+  // 7. Cleanup
+  console.log("\n7. Cleaning up test task from DB...");
+  await deleteTask(task.id);
+  console.log("   deleted.\n");
+
+  console.log(`=== ${passed ? "PASS" : "FAIL"} ===\n`);
+  if (!passed) process.exit(1);
 }
 
 run().catch((err) => {
