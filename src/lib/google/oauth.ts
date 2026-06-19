@@ -61,14 +61,8 @@ const GOOGLE_CALENDAR_LIST_URL =
   "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const GOOGLE_CALENDAR_EVENTS_URL = (calendarId: string) =>
   `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
-const SCOPES = [
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/calendar.freebusy",
-  "https://www.googleapis.com/auth/calendar.readonly",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/gmail.compose",
-  "https://www.googleapis.com/auth/gmail.send",
-];
+import { GOOGLE_OAUTH_SCOPES } from "./scopes";
+const SCOPES = [...GOOGLE_OAUTH_SCOPES];
 export const GOOGLE_TOKEN_COOKIE = "zizka_google_token";
 
 const globalForGoogle = globalThis as typeof globalThis & {

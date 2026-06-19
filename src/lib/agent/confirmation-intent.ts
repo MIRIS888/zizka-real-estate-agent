@@ -87,5 +87,12 @@ export function classifyConfirmationIntent(message: string): ConfirmationIntent 
     return "confirm_with_modification";
   }
 
+  // "ok, v 22:15 mi pošli..." — positive word followed by a scheduling spec (time + action)
+  // is a new compound request, not a pure confirmation of a pending action.
+  const hasTimeSpec = /v\s+\d{1,2}:\d{2}/.test(norm);
+  if (hasPositive && hasTimeSpec && norm.length > 30) {
+    return "confirm_with_modification";
+  }
+
   return "pure_confirm";
 }

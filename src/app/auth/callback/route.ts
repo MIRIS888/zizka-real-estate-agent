@@ -10,15 +10,8 @@ import {
 } from "@/lib/google/oauth";
 import { saveGoogleAccount } from "@/lib/google/token-store";
 
-// Scopes that were requested during Google OAuth login
-const REQUESTED_SCOPES = [
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.compose",
-  "https://www.googleapis.com/auth/calendar.freebusy",
-  "https://www.googleapis.com/auth/calendar.readonly",
-  "https://www.googleapis.com/auth/calendar.events",
-].join(" ");
+import { GOOGLE_OAUTH_SCOPES_STRING } from "@/lib/google/scopes";
+const REQUESTED_SCOPES = GOOGLE_OAUTH_SCOPES_STRING;
 
 function getPublicOrigin(request: NextRequest): string {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;

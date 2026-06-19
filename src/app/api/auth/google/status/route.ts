@@ -1,18 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { isGoogleOAuthConfigured } from "@/lib/env";
+import {
+  SCOPE_GMAIL_READ,
+  SCOPE_GMAIL_SEND,
+  SCOPE_CALENDAR_EVENTS,
+  SCOPE_CALENDAR_READ,
+  hasScope,
+} from "@/lib/google/scopes";
 import { loadGoogleAccount } from "@/lib/google/token-store";
 import { getAuthUser } from "@/lib/supabase/auth-server";
-
-const REQUIRED_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/calendar.events",
-];
-
-function hasRequiredScopes(scope?: string): boolean {
-  const granted = (scope ?? "").split(" ");
-  return REQUIRED_SCOPES.every((s) => granted.includes(s));
-}
 
 export async function GET() {
   const user = await getAuthUser();
@@ -24,14 +21,32 @@ export async function GET() {
   const account = await loadGoogleAccount(user.id).catch(() => null);
 
   if (!account) {
-    return NextResponse.json({ configured, connected: false, scopes: [] });
+    return NextResponse.json({
+      configured,
+      connected: false,
+      scopes: [],
+      capabilities: {
+        gmailRead: false,
+        gmailSend: false,
+        calendarRead: false,
+        calendarWrite: false,
+      },
+    });
   }
+
+  const scope = account.token.scope;
 
   return NextResponse.json({
     configured,
     connected: true,
     email: account.email,
-    hasRequiredScopes: hasRequiredScopes(account.token.scope),
-    scopes: account.token.scope?.split(" ") ?? [],
+    hasRequiredScopes: hasScope(scope, SCOPE_GMAIL_SEND) && hasScope(scope, SCOPE_CALENDAR_EVENTS),
+    scopes: scope?.split(" ") ?? [],
+    capabilities: {
+      gmailRead: hasScope(scope, SCOPE_GMAIL_READ),
+      gmailSend: hasScope(scope, SCOPE_GMAIL_SEND),
+      calendarRead: hasScope(scope, SCOPE_CALENDAR_READ),
+      calendarWrite: hasScope(scope, SCOPE_CALENDAR_EVENTS),
+    },
   });
 }

@@ -39,6 +39,13 @@ import {
   getFunctionCalls,
 } from "@/lib/gemini/client";
 import { getCronSecret, getDataSourceEnvironment, isGeminiConfigured, isQStashConfigured } from "@/lib/env";
+import { listRecentEmails, readEmail, searchEmails } from "@/lib/tools/gmail-read";
+import {
+  ListRecentEmailsInputSchema,
+  ReadEmailInputSchema,
+  SearchEmailsInputSchema,
+  CreateScheduledTasksBatchInputSchema,
+} from "@/lib/contracts/tools";
 import { scheduleQStashTrigger, getRunDueTasksUrl } from "@/lib/scheduler/qstash";
 import { getDefaultOrganizationId } from "@/lib/supabase/server";
 import {
@@ -366,6 +373,7 @@ const ALWAYS_CONSEQUENTIAL = new Set<string>([
   "update_calendar_event",
   "delete_calendar_event",
   "create_scheduled_task",
+  "create_scheduled_tasks_batch",
   "update_scheduled_task",
   "delete_scheduled_task",
 ]);
@@ -393,6 +401,29 @@ function buildConfirmationMessage(action: FunctionToolCall) {
 
   if (action.toolName === "watch_market") {
     return "Chystám se založit pravidelný monitoring realitních nabídek. Potvrďte prosím odpovědí ’ano, založ monitoring’.";
+  }
+
+  if (action.toolName === "create_scheduled_tasks_batch") {
+    const raw = action.toolInput as Record<string, unknown>;
+    const tasks = Array.isArray(raw.tasks) ? (raw.tasks as Record<string, unknown>[]) : [];
+    const lines = tasks.map((t, i) => {
+      const loc = typeof t.location === "string" ? t.location : "?";
+      const kind = t.schedule_kind === "one_time" ? "Jednorázový" : "Opakovaný";
+      if (t.schedule_kind === "one_time" && typeof t.run_at === "string") {
+        const dt = new Intl.DateTimeFormat("cs-CZ", {
+          timeZone: "Europe/Prague",
+          weekday: "long",
+          day: "numeric",
+          month: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(t.run_at));
+        return `${i + 1}. ${kind} realitní přehled pro **${loc}** — ${dt}`;
+      }
+      const time = typeof t.schedule_time === "string" ? t.schedule_time : "08:00";
+      return `${i + 1}. ${kind} realitní přehled pro **${loc}** každý den v **${time}**`;
+    });
+    return `Mám nastavit **${tasks.length} naplánované${tasks.length === 1 ? "" : tasks.length < 5 ? " úlohy" : " úloh"}?**\n\n${lines.join("\n")}\n\nPotvrďte prosím odpovědí 'ano založ'.`;
   }
 
   if (action.toolName === "create_scheduled_task") {
@@ -522,6 +553,19 @@ function buildConfirmedActionMessage(
       ? "Ranní report se nepodařilo odeslat."
       : "Hotovo, ranní report byl odeslán e-mailem.";
   }
+  if (action.toolName === "create_scheduled_tasks_batch") {
+    const result = execution.result as { results?: { ok: boolean; location: string; scheduleKind: string; reason?: string }[]; created?: number; failed?: number };
+    const created = result?.results?.filter((r) => r.ok) ?? [];
+    const failed = result?.results?.filter((r) => !r.ok) ?? [];
+    if (created.length === 0) return "Nepodařilo se vytvořit žádnou úlohu.";
+    const lines = created.map((r, i) => {
+      const kind = r.scheduleKind === "one_time" ? "jednorázově" : "každý den";
+      return `${i + 1}. **${r.location}** — ${kind}`;
+    });
+    const failMsg = failed.length > 0 ? `\n\n⚠️ ${failed.length} úloha/y se nepodařilo vytvořit: ${failed.map((r) => r.location).join(", ")}.` : "";
+    return `Hotovo, nastavil jsem **${created.length}** naplánované${created.length < 5 ? " úlohy" : " úloh"}:\n\n${lines.join("\n")}${failMsg}`;
+  }
+
   if (action.toolName === "create_scheduled_task") {
     const result = execution.result as { created?: boolean; reason?: string; localTime?: string; scheduleKind?: string; qstashScheduled?: boolean };
     if (result?.reason === "past_datetime") {
@@ -1866,6 +1910,211 @@ async function executeToolAction(
             ...(event.location ? [{ položka: "Místo", hodnota: event.location }] : []),
             ...(event.htmlLink ? [{ položka: "Odkaz", hodnota: event.htmlLink }] : []),
           ],
+        },
+      },
+    };
+  }
+
+  // Gmail read tools (read-only, no confirmation required)
+  if (action.toolName === "list_recent_emails") {
+    const raw = typeof action.toolInput === "object" && action.toolInput !== null ? action.toolInput : {};
+    const input = ListRecentEmailsInputSchema.parse(raw);
+    try {
+      const { emails, isEmpty } = await listRecentEmails(options?.googleToken, input);
+      return {
+        toolName: action.toolName,
+        toolInput: input,
+        result: { emails, isEmpty, isMock: false },
+        isMock: false,
+        isEmpty,
+        response: {
+          intent: "email",
+          requiresConfirmation: false,
+          source: { label: "Gmail", detail: "Přečteno z Gmail API.", mode: "live" },
+          artifact: isEmpty
+            ? undefined
+            : {
+                type: "table",
+                title: "E-maily",
+                columns: ["Od", "Předmět", "Přijato", "Náhled"],
+                rows: emails.map((e) => ({
+                  Od: e.sender,
+                  Předmět: e.subject,
+                  Přijato: e.receivedAt,
+                  Náhled: e.snippet.slice(0, 100),
+                })),
+              },
+        },
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Chyba při čtení Gmail.";
+      return {
+        toolName: action.toolName,
+        toolInput: input,
+        result: { error: msg },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "email",
+          requiresConfirmation: false,
+          source: { label: "Gmail", detail: msg, mode: "planned_integration" },
+        },
+      };
+    }
+  }
+
+  if (action.toolName === "read_email") {
+    const raw = typeof action.toolInput === "object" && action.toolInput !== null ? action.toolInput : {};
+    const input = ReadEmailInputSchema.parse(raw);
+    try {
+      const { email, isEmpty } = await readEmail(options?.googleToken, input.messageId);
+      return {
+        toolName: action.toolName,
+        toolInput: input,
+        result: { email, isEmpty, isMock: false },
+        isMock: false,
+        isEmpty,
+        response: {
+          intent: "email",
+          requiresConfirmation: false,
+          source: { label: "Gmail", detail: "Obsah e-mailu z Gmail API.", mode: "live" },
+        },
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Chyba při čtení e-mailu.";
+      return {
+        toolName: action.toolName,
+        toolInput: input,
+        result: { error: msg },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "email",
+          requiresConfirmation: false,
+          source: { label: "Gmail", detail: msg, mode: "planned_integration" },
+        },
+      };
+    }
+  }
+
+  if (action.toolName === "search_emails") {
+    const raw = typeof action.toolInput === "object" && action.toolInput !== null ? action.toolInput : {};
+    const input = SearchEmailsInputSchema.parse(raw);
+    try {
+      const { emails, isEmpty } = await searchEmails(options?.googleToken, input.query, input.maxResults);
+      return {
+        toolName: action.toolName,
+        toolInput: input,
+        result: { emails, isEmpty, isMock: false },
+        isMock: false,
+        isEmpty,
+        response: {
+          intent: "email",
+          requiresConfirmation: false,
+          source: { label: "Gmail", detail: `Výsledky hledání: ${input.query}`, mode: "live" },
+          artifact: isEmpty
+            ? undefined
+            : {
+                type: "table",
+                title: `Výsledky: ${input.query}`,
+                columns: ["Od", "Předmět", "Přijato", "Náhled"],
+                rows: emails.map((e) => ({
+                  Od: e.sender,
+                  Předmět: e.subject,
+                  Přijato: e.receivedAt,
+                  Náhled: e.snippet.slice(0, 100),
+                })),
+              },
+        },
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Chyba při hledání v Gmail.";
+      return {
+        toolName: action.toolName,
+        toolInput: input,
+        result: { error: msg },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "email",
+          requiresConfirmation: false,
+          source: { label: "Gmail", detail: msg, mode: "planned_integration" },
+        },
+      };
+    }
+  }
+
+  // Batch scheduled task creation
+  if (action.toolName === "create_scheduled_tasks_batch") {
+    const userId = options?.userId;
+    if (!userId) {
+      return {
+        toolName: action.toolName,
+        toolInput: action.toolInput,
+        result: { created: 0, failed: 0, results: [], isMock: false },
+        isMock: false,
+        isEmpty: true,
+        response: {
+          intent: "general",
+          requiresConfirmation: false,
+          source: { label: "Přihlášení vyžadováno", detail: "Pro vytvoření úloh musíte být přihlášeni.", mode: "planned_integration" },
+        },
+      };
+    }
+
+    const raw = typeof action.toolInput === "object" && action.toolInput !== null ? action.toolInput : {};
+    const input = CreateScheduledTasksBatchInputSchema.parse(raw);
+
+    const results: { ok: boolean; location: string; scheduleKind: string; reason?: string }[] = [];
+
+    for (const taskInput of input.tasks) {
+      try {
+        const isOneTime = taskInput.schedule_kind === "one_time";
+        if (isOneTime) {
+          if (!taskInput.run_at) {
+            results.push({ ok: false, location: taskInput.location, scheduleKind: "one_time", reason: "Chybí čas (run_at) pro jednorázovou úlohu." });
+            continue;
+          }
+          if (new Date(taskInput.run_at) <= new Date()) {
+            results.push({ ok: false, location: taskInput.location, scheduleKind: "one_time", reason: "Zadaný čas je v minulosti." });
+            continue;
+          }
+        }
+        const task = await createScheduledTask(userId, {
+          ...taskInput,
+          recipient_email: options?.userEmail,
+        });
+        // Schedule one_time tasks via QStash
+        if (isOneTime && isQStashConfigured()) {
+          const cronSecret = getCronSecret();
+          const qstashToken = process.env.QSTASH_TOKEN ?? "";
+          if (cronSecret && qstashToken) {
+            await scheduleQStashTrigger(new Date(task.next_run_at), getRunDueTasksUrl(), cronSecret, qstashToken).catch(() => null);
+          }
+        }
+        results.push({ ok: true, location: taskInput.location, scheduleKind: taskInput.schedule_kind });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Chyba při vytváření úlohy.";
+        results.push({ ok: false, location: taskInput.location, scheduleKind: taskInput.schedule_kind, reason: msg });
+      }
+    }
+
+    const createdCount = results.filter((r) => r.ok).length;
+    const failedCount = results.filter((r) => !r.ok).length;
+
+    return {
+      toolName: action.toolName,
+      toolInput: input,
+      result: { results, created: createdCount, failed: failedCount, isMock: false },
+      isMock: false,
+      isEmpty: createdCount === 0,
+      response: {
+        intent: "general",
+        requiresConfirmation: false,
+        source: {
+          label: "Batch úlohy",
+          detail: `Vytvořeno: ${createdCount}, selhalo: ${failedCount}`,
+          mode: "live",
         },
       },
     };

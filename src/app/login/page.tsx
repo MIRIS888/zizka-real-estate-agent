@@ -7,13 +7,8 @@ import Link from "next/link";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-const GMAIL_CALENDAR_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.compose",
-  "https://www.googleapis.com/auth/calendar.freebusy",
-  "https://www.googleapis.com/auth/calendar.readonly",
-  "https://www.googleapis.com/auth/calendar.events",
-].join(" ");
+import { GOOGLE_OAUTH_SCOPES_STRING } from "@/lib/google/scopes";
+const GMAIL_CALENDAR_SCOPES = GOOGLE_OAUTH_SCOPES_STRING;
 
 function WorkspaceOutline() {
   return (

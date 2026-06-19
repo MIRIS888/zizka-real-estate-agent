@@ -146,6 +146,39 @@ export const CreateCalendarEventInputSchema = z.object({
   calendarId: z.string().min(1).default("primary"),
 });
 
+export const ListRecentEmailsInputSchema = z.object({
+  maxResults: z.number().int().min(1).max(20).default(10),
+  query: z.string().optional(),
+  unreadOnly: z.boolean().default(false),
+});
+
+export const ReadEmailInputSchema = z.object({
+  messageId: z.string().min(1),
+});
+
+export const SearchEmailsInputSchema = z.object({
+  query: z.string().min(1),
+  maxResults: z.number().int().min(1).max(20).default(10),
+});
+
+export const CreateScheduledTasksBatchInputSchema = z.object({
+  tasks: z
+    .array(
+      z.object({
+        task_type: z.literal("market_digest"),
+        location: z.string().min(1),
+        transaction: z.enum(["sale", "rent"]).default("sale"),
+        schedule_kind: z.enum(["one_time", "recurring"]).default("recurring"),
+        run_at: z.string().optional(),
+        schedule_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+        frequency: z.literal("daily").default("daily"),
+        timezone: z.string().min(1).default("Europe/Prague"),
+      }),
+    )
+    .min(2)
+    .max(10),
+});
+
 export const AgentToolNameSchema = z.enum([
   "none",
   "query_lead_metrics",
@@ -163,9 +196,13 @@ export const AgentToolNameSchema = z.enum([
   "send_morning_report",
   "watch_market",
   "create_scheduled_task",
+  "create_scheduled_tasks_batch",
   "list_scheduled_tasks",
   "update_scheduled_task",
   "delete_scheduled_task",
+  "list_recent_emails",
+  "read_email",
+  "search_emails",
 ]);
 
 export const AgentPlanSchema = z.object({
@@ -207,3 +244,7 @@ export type AgentToolName = z.infer<typeof AgentToolNameSchema>;
 export type AgentPlan = z.infer<typeof AgentPlanSchema>;
 export type AgentAction = z.infer<typeof AgentActionSchema>;
 export type SendMorningReportInput = z.infer<typeof SendMorningReportInputSchema>;
+export type ListRecentEmailsInput = z.infer<typeof ListRecentEmailsInputSchema>;
+export type ReadEmailInput = z.infer<typeof ReadEmailInputSchema>;
+export type SearchEmailsInput = z.infer<typeof SearchEmailsInputSchema>;
+export type CreateScheduledTasksBatchInput = z.infer<typeof CreateScheduledTasksBatchInputSchema>;
