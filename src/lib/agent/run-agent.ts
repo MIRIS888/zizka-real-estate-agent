@@ -4,6 +4,7 @@ import {
   verifyConfirmationToken,
   type PendingTool,
 } from "@/lib/agent/confirmation-token";
+import { classifyConfirmationIntent } from "@/lib/agent/confirmation-intent";
 import {
   CreateCalendarEventInputSchema,
   CreateEmailDraftInputSchema,
@@ -357,30 +358,6 @@ function createFunctionToolCall(functionCall: FunctionCall): FunctionToolCall {
   };
 }
 
-function isConfirmationMessage(userMessage: string) {
-  const normalized = userMessage.toLocaleLowerCase("cs-CZ");
-
-  return [
-    "ano",
-    "pošli",
-    "posli",
-    "potvrzuji",
-    "potvrdit",
-    "souhlas",
-    "ok",
-    "odešli",
-    "odesli",
-    "smaž",
-    "smaz",
-    "zruš",
-    "zrus",
-    "uprav",
-    "vytvoř",
-    "vytvor",
-    "založ",
-    "zaloz",
-  ].some((phrase) => normalized.includes(phrase));
-}
 
 const ALWAYS_CONSEQUENTIAL = new Set<string>([
   "send_email",
@@ -1924,52 +1901,75 @@ export async function runAgent(
     };
   }
 
-  // Fast path: user confirmed a pending action — execute directly, skip Gemini re-generation.
-  // Without this, Gemini would regenerate the same tool call with potentially different args,
-  // causing payloadHash mismatch → infinite confirmation loop.
-  if (
-    options?.confirmationToken &&
-    options?.pendingTool &&
-    isConfirmationMessage(userMessage)
-  ) {
-    const isAuthorized = verifyConfirmationToken(
-      options.confirmationToken,
-      options.userId ?? null,
-      options.pendingTool,
-      options.threadId,
-    );
+  // Confirmation response handling — classify user intent to avoid mechanical keyword matching.
+  // pure_confirm → fast-path execute (skip Gemini re-generation to avoid payload drift).
+  // reject → cancel immediately without calling Gemini.
+  // confirm_with_modification / confirm_with_additional_request → re-route to Gemini with
+  //   context about the original pending action so it can generate updated parameters.
+  // question_or_unclear → fall through to Gemini normally.
+  let pendingActionContextNote: string | null = null;
 
-    if (!isAuthorized) {
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[agent] confirmation fast-path: token INVALID (expired / wrong userId / payload mismatch)");
-      }
+  if (options?.confirmationToken && options?.pendingTool) {
+    const confirmIntent = classifyConfirmationIntent(userMessage);
+
+    if (confirmIntent === "reject") {
       return {
         intent: "general",
         requiresConfirmation: false,
-        message:
-          "Potvrzení se nepodařilo ověřit — platnost mohla vypršet nebo byl změněn obsah akce. Zadejte akci znovu.",
+        message: "Dobře, akce byla zrušena. Jak vám mohu jinak pomoci?",
       };
     }
 
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[agent] confirmation fast-path: token OK — executing ${options.pendingTool.toolName}`);
+    if (confirmIntent === "pure_confirm") {
+      const isAuthorized = verifyConfirmationToken(
+        options.confirmationToken,
+        options.userId ?? null,
+        options.pendingTool,
+        options.threadId,
+      );
+
+      if (!isAuthorized) {
+        if (process.env.NODE_ENV !== "production") {
+          console.log("[agent] confirmation fast-path: token INVALID (expired / wrong userId / payload mismatch)");
+        }
+        return {
+          intent: "general",
+          requiresConfirmation: false,
+          message:
+            "Potvrzení se nepodařilo ověřit — platnost mohla vypršet nebo byl změněn obsah akce. Zadejte akci znovu.",
+        };
+      }
+
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[agent] confirmation fast-path: token OK — executing ${options.pendingTool.toolName}`);
+      }
+
+      const confirmedAction: FunctionToolCall = {
+        toolName: options.pendingTool.toolName as AgentToolName,
+        toolInput: options.pendingTool.payload,
+      };
+
+      const confirmedExecution = await executeToolAction(userMessage, confirmedAction, {
+        googleToken: options.googleToken,
+        userEmail: options.userEmail,
+        userId: options.userId,
+      });
+
+      return createTextResponse(
+        buildConfirmedActionMessage(confirmedAction, confirmedExecution),
+        [confirmedExecution],
+      );
     }
 
-    const confirmedAction: FunctionToolCall = {
-      toolName: options.pendingTool.toolName as AgentToolName,
-      toolInput: options.pendingTool.payload,
-    };
-
-    const confirmedExecution = await executeToolAction(userMessage, confirmedAction, {
-      googleToken: options.googleToken,
-      userEmail: options.userEmail,
-      userId: options.userId,
-    });
-
-    return createTextResponse(
-      buildConfirmedActionMessage(confirmedAction, confirmedExecution),
-      [confirmedExecution],
-    );
+    // confirm_with_modification or confirm_with_additional_request — user wants a change.
+    // Inject context so Gemini knows what was originally planned and can adjust parameters.
+    if (
+      confirmIntent === "confirm_with_modification" ||
+      confirmIntent === "confirm_with_additional_request"
+    ) {
+      pendingActionContextNote = `ÚPRAVA AKCE: Uživatel souhlasí s akcí "${options.pendingTool.toolName}", ale upravuje parametry. Původní parametry: ${JSON.stringify(options.pendingTool.payload)}. Zavolej tool s novými parametry podle uživatelovy úpravy — NEPOUŽÍVEJ původní parametry beze změny.`;
+    }
+    // question_or_unclear: fall through to Gemini with full conversation history
   }
 
   const { client, model } = createGeminiClient();
@@ -2012,7 +2012,8 @@ export async function runAgent(
     `Pro vytváření kalendářových událostí: startDateTime/endDateTime musí být RFC3339 s UTC offsetem, např. "2026-06-18T14:00:00${_isoOffset}".`,
     "Pro relativní datumy počítej rozsahy z aktuálního data výše.",
     _schedulerNote,
-  ].join("\n");
+    pendingActionContextNote,
+  ].filter(Boolean).join("\n");
 
   async function callGemini(activeModel: string, activeContents: Content[]) {
     return client.models.generateContent({

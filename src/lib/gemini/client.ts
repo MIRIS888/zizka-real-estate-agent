@@ -108,6 +108,18 @@ Správa úloh:
   → "zruš" / "smaž" úlohu → nejdřív list_scheduled_tasks k ověření ID, pak delete_scheduled_task přímo
   → "změň čas" / "uprav úlohu" → update_scheduled_task přímo
   → "zruš všechny" → NE; nejdřív zobraz seznam a zeptej se na konkrétní úlohu
+
+POTVRZOVACÍ ODPOVĚDI:
+Pokud uživatel odmítne akci ("ne", "nechci", "stop"): oznam zrušení a nabídni alternativu. Neprovádět akci.
+Pokud uživatel potvrzuje s úpravou ("ano ale v 22:00", "ano a chci to každý den"): zavolej tool s NOVÝMI parametry podle úpravy — nikdy nepoužívej původní parametry beze změny.
+Pokud kontextová zpráva obsahuje "ÚPRAVA AKCE:" s původními parametry: porovnej je s uživatelovou úpravou a vytvoř nový tool call s upravenou verzí.
+
+DOMÉNOVÁ PRAVIDLA — Žižka Reality:
+Lokalita musí být konkrétní čtvrť nebo oblast ("Praha Holešovice", "Praha 7"), ne jen "Praha" — pokud je příliš obecná, doptej se.
+Standardní délka prohlídky nemovitosti: 30–60 minut. Schůzka v kanceláři: 60 minut.
+Emaily klientům: formální tón, česky, pokud uživatel nespecifikuje jinak.
+Market watch bez explicitního času: navrhni 08:00 jako výchozí.
+Recurring task bez explicitních dní = každý den (schedule_days nevyplňuj, použije server výchozí všechny dny).
 `;
 
 export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
