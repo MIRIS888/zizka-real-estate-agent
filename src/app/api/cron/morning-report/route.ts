@@ -12,40 +12,9 @@ function getTodayPrague(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Prague" }).format(new Date());
 }
 
-// GET: called by Vercel Cron (no body, Authorization: Bearer <CRON_SECRET>)
+// GET: called by Vercel Cron — delegates to POST so idempotency check always runs
 export async function GET(request: Request) {
-  if (!isCronAuthorized(request)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  const account = await loadGoogleAccount();
-  if (!account) {
-    return NextResponse.json({
-      sent: false,
-      reason: "No Google account connected. Connect Google in the app first.",
-    });
-  }
-
-  const report = await buildMorningReport();
-
-  const { messageId } = await sendGmailMessage(account.token, {
-    to: account.email,
-    subject: report.subject,
-    body: report.text,
-    html: report.html,
-  });
-
-  return NextResponse.json({
-    sent: true,
-    to: account.email,
-    subject: report.subject,
-    messageId,
-    stats: {
-      totalLeads: report.totalLeads,
-      incompleteCount: report.incompleteCount,
-      listingCount: report.listingCount,
-    },
-  });
+  return POST(request);
 }
 
 // POST: called by N8N (same auth). Returns N8N-compatible envelope.

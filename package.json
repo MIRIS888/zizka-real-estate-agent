@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "seed:local": "node scripts/seed-local.mjs",
     "seed:supabase": "node scripts/seed-supabase-demo.mjs",
-    "validate:demo": "node scripts/validate-demo.mjs"
+    "validate:demo": "node scripts/validate-demo.mjs",
+    "diagnose:cron": "node scripts/diagnose-cron.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.8.0",

@@ -5,10 +5,6 @@
       "schedule": "0 6 * * 1-5"
     },
     {
-      "path": "/api/cron/dispatcher",
-      "schedule": "0 6 * * *"
-    },
-    {
       "path": "/api/cron/run-due-tasks",
       "schedule": "0 6 * * *"
     }
