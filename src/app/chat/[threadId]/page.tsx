@@ -1,4 +1,5 @@
 import { AgentChat } from "@/components/agent-chat";
+import { getAuthUser } from "@/lib/supabase/auth-server";
 
 export default async function ThreadPage({
   params,
@@ -6,5 +7,6 @@ export default async function ThreadPage({
   params: Promise<{ threadId: string }>;
 }) {
   const { threadId } = await params;
-  return <AgentChat initialThreadId={threadId} />;
+  const user = await getAuthUser();
+  return <AgentChat initialThreadId={threadId} userEmail={user?.email} />;
 }

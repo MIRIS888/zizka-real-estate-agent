@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 import { createGoogleAuthorizationUrl } from "@/lib/google/oauth";
+import { getAuthUser } from "@/lib/supabase/auth-server";
 
 function getPublicOrigin(request: NextRequest): string {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
@@ -10,7 +11,12 @@ function getPublicOrigin(request: NextRequest): string {
   return new URL(request.url).origin;
 }
 
-export function GET(request: NextRequest) {
+export async function GET(request: NextRequest) {
+  const user = await getAuthUser();
+  if (!user) {
+    return NextResponse.json({ error: "Nejste přihlášený." }, { status: 401 });
+  }
+
   try {
     const origin = getPublicOrigin(request);
     const redirectUri = `${origin}/api/auth/google/callback`;

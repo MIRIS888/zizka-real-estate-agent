@@ -1,9 +1,9 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Building2, LoaderCircle } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -48,35 +48,52 @@ function WorkspaceOutline() {
   );
 }
 
-function LoginForm() {
+function SignupForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const urlError = searchParams.get("error");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setFormError(null);
 
+    if (password.length < 8) {
+      setFormError("Heslo musí mít alespoň 8 znaků.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setFormError("Hesla se neshodují.");
+      return;
+    }
+
+    setLoading(true);
+
     const supabase = createSupabaseBrowserClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password });
 
     if (error) {
-      setFormError("Nesprávný e-mail nebo heslo. Zkuste to znovu.");
+      setFormError("Registrace se nezdařila: " + error.message);
       setLoading(false);
-    } else {
+      return;
+    }
+
+    if (data.session) {
       router.push("/chat/new");
       router.refresh();
+    } else {
+      setSuccess(true);
+      setLoading(false);
     }
   }
 
-  async function handleGoogleLogin() {
+  async function handleGoogleSignup() {
     setGoogleLoading(true);
     setFormError(null);
     const supabase = createSupabaseBrowserClient();
@@ -91,10 +108,43 @@ function LoginForm() {
         },
       },
     });
-    // Page redirects to Google — no need to reset loading
   }
 
   const anyLoading = loading || googleLoading;
+
+  if (success) {
+    return (
+      <div className="flex w-full max-w-[390px] flex-col">
+        <div className="mb-14 flex items-center gap-3 text-white">
+          <div className="flex size-10 items-center justify-center rounded border border-[#2f3336] bg-[#050505]">
+            <Building2 className="size-5" />
+          </div>
+          <div>
+            <p className="text-[13px] font-semibold uppercase text-[#71767b]">
+              Interní systém
+            </p>
+            <p className="text-[17px] font-semibold text-[#e7e9ea]">
+              Žižka Real Estate Agent
+            </p>
+          </div>
+        </div>
+
+        <h1 className="mb-4 text-[3.2rem] font-bold leading-[0.98] text-white sm:text-[4rem]">
+          Skoro hotovo
+        </h1>
+        <p className="mb-10 text-[16px] leading-6 text-[#8b8f92]">
+          Zkontrolujte e-mail a potvrďte registraci kliknutím na odkaz, který
+          jsme vám poslali.
+        </p>
+        <Link
+          href="/login"
+          className="text-[13px] text-[#71767b] underline underline-offset-2 hover:text-[#e7e9ea]"
+        >
+          Zpět na přihlášení
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex w-full max-w-[390px] flex-col">
@@ -113,16 +163,16 @@ function LoginForm() {
       </div>
 
       <h1 className="mb-4 text-[3.2rem] font-bold leading-[0.98] text-white sm:text-[4rem]">
-        Přihlášení
+        Registrace
       </h1>
       <p className="mb-10 text-[16px] leading-6 text-[#8b8f92]">
-        Přístup pouze pro členy týmu.
+        Vytvořte si přístup do interního systému.
       </p>
 
       <div className="flex flex-col gap-3">
         <button
           type="button"
-          onClick={() => void handleGoogleLogin()}
+          onClick={() => void handleGoogleSignup()}
           disabled={anyLoading}
           className="flex h-12 w-full items-center justify-center gap-3 rounded-md bg-[#eff3f4] px-5 text-[15px] font-semibold text-[#0f1419] transition hover:bg-[#e6e9ea] disabled:cursor-not-allowed disabled:opacity-60"
         >
@@ -131,7 +181,9 @@ function LoginForm() {
           ) : (
             <GoogleLogo />
           )}
-          {googleLoading ? "Přesměrování..." : "Pokračovat přes Google"}
+          {googleLoading
+            ? "Přesměrování..."
+            : "Registrovat / pokračovat přes Google"}
         </button>
 
         <div className="flex items-center gap-3 py-1">
@@ -154,7 +206,16 @@ function LoginForm() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Heslo"
+            placeholder="Heslo (min. 8 znaků)"
+            required
+            disabled={anyLoading}
+            className="h-12 rounded-md border border-[#2f3336] bg-[#16181c] px-4 text-[15px] text-white placeholder-[#71767b] outline-none transition focus:border-[#536471] disabled:opacity-60"
+          />
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Potvrďte heslo"
             required
             disabled={anyLoading}
             className="h-12 rounded-md border border-[#2f3336] bg-[#16181c] px-4 text-[15px] text-white placeholder-[#71767b] outline-none transition focus:border-[#536471] disabled:opacity-60"
@@ -167,39 +228,36 @@ function LoginForm() {
             {loading ? (
               <LoaderCircle className="size-5 animate-spin text-white/40" />
             ) : null}
-            {loading ? "Přihlašování..." : "Přihlásit se"}
+            {loading ? "Registrace..." : "Registrovat se"}
           </button>
         </form>
       </div>
 
       <p className="mt-5 text-[13px] leading-5 text-[#71767b]">
-        Nemáte účet?{" "}
+        Máte účet?{" "}
         <Link
-          href="/signup"
+          href="/login"
           className="text-[#e7e9ea] underline underline-offset-2 hover:text-white"
         >
-          Zaregistrujte se
+          Přihlaste se
         </Link>
       </p>
 
-      {(formError ?? urlError) && (
-        <p className="mt-5 text-sm text-red-400">
-          {formError ??
-            "Přihlášení se nezdařilo. Zkuste to znovu nebo kontaktujte správce."}
-        </p>
+      {formError && (
+        <p className="mt-5 text-sm text-red-400">{formError}</p>
       )}
     </div>
   );
 }
 
-export default function LoginPage() {
+export default function SignupPage() {
   return (
     <Suspense>
       <div className="min-h-screen overflow-hidden bg-black text-white">
         <main className="mx-auto flex min-h-screen w-full max-w-[1280px] items-center justify-center px-6 py-10 lg:justify-start lg:px-12 xl:px-16">
           <div className="grid w-full items-center gap-16 lg:grid-cols-[minmax(390px,520px)_1fr] xl:gap-32">
             <div className="flex justify-center lg:justify-start">
-              <LoginForm />
+              <SignupForm />
             </div>
             <div className="hidden justify-center lg:flex">
               <div className="h-[430px] w-[520px] xl:h-[500px] xl:w-[640px]">

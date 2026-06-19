@@ -6,9 +6,8 @@ export async function middleware(request: NextRequest) {
   const isPublicPath =
     pathname === "/" ||
     pathname.startsWith("/login") ||
+    pathname.startsWith("/signup") ||
     pathname.startsWith("/auth/") ||
-    pathname === "/api/agent" ||
-    pathname === "/api/chat" ||
     pathname === "/api/auth/google/status" ||
     pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/api/webhooks/n8n/") ||
@@ -51,10 +50,13 @@ export async function middleware(request: NextRequest) {
     ?? `${request.nextUrl.protocol}//${request.nextUrl.host}`;
 
   if (!user && !isPublicPath) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Nejste přihlášený." }, { status: 401 });
+    }
     return NextResponse.redirect(new URL("/login", siteUrl));
   }
 
-  if (user && pathname === "/login") {
+  if (user && (pathname === "/login" || pathname === "/signup")) {
     return NextResponse.redirect(new URL("/chat/new", siteUrl));
   }
 

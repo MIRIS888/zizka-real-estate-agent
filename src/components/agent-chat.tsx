@@ -420,7 +420,7 @@ function useTheme() {
   return { dark, toggle };
 }
 
-export function AgentChat({ initialThreadId }: { initialThreadId?: string } = {}) {
+export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: string; userEmail?: string } = {}) {
   const router = useRouter();
   const { dark, toggle: toggleTheme } = useTheme();
   const [message, setMessage] = useState("");
@@ -802,6 +802,15 @@ export function AgentChat({ initialThreadId }: { initialThreadId?: string } = {}
             )}
             {dark ? "Světlý motiv" : "Tmavý motiv"}
           </button>
+
+          {userEmail && (
+            <div className="flex items-center gap-2.5 rounded-lg px-3 py-1.5">
+              <span className="size-1.5 shrink-0 rounded-full bg-[var(--primary)] opacity-60" />
+              <span className="truncate text-[11px] text-[var(--foreground-muted)]">
+                {userEmail}
+              </span>
+            </div>
+          )}
 
           <button
             type="button"
