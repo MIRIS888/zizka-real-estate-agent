@@ -1,4 +1,5 @@
 import { getGoogleOAuthEnvironment, isGoogleOAuthConfigured } from "@/lib/env";
+import { GOOGLE_OAUTH_SCOPES } from "./scopes";
 
 export type GoogleCalendarSlot = {
   startsAt: string;
@@ -61,7 +62,6 @@ const GOOGLE_CALENDAR_LIST_URL =
   "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const GOOGLE_CALENDAR_EVENTS_URL = (calendarId: string) =>
   `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
-import { GOOGLE_OAUTH_SCOPES } from "./scopes";
 const SCOPES = [...GOOGLE_OAUTH_SCOPES];
 export const GOOGLE_TOKEN_COOKIE = "zizka_google_token";
 

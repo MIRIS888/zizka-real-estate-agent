@@ -422,6 +422,14 @@ function useTheme() {
   return { dark, toggle };
 }
 
+function getTimeGreeting(): string {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 10) return "Dobré ráno";
+  if (h >= 10 && h < 13) return "Dobré dopoledne";
+  if (h >= 13 && h < 18) return "Dobré odpoledne";
+  return "Dobrý večer";
+}
+
 export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: string; userEmail?: string } = {}) {
   const router = useRouter();
   const { dark, toggle: toggleTheme } = useTheme();
@@ -851,7 +859,7 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
           ) : uiMessages.length === 0 ? (
             <div className="mx-auto flex h-full max-w-[700px] flex-col justify-center px-6 py-12">
               <p className="text-2xl font-semibold text-[var(--foreground)]">
-                Dobrý den, Pepo
+                {getTimeGreeting()}
               </p>
               <p className="mt-1.5 text-sm text-[var(--foreground-muted)]">
                 Čím mohu pomoci?
