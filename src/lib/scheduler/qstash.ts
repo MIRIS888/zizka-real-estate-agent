@@ -15,7 +15,9 @@ export async function scheduleQStashTrigger(
 ): Promise<QStashResult | null> {
   const notBefore = Math.floor(runAt.getTime() / 1000);
   try {
-    const response = await fetch(`${getPublishUrl()}/${encodeURIComponent(targetUrl)}`, {
+    // QStash requires the destination URL appended raw in the path (not percent-encoded).
+    // encodeURIComponent turns https:// into https%3A%2F%2F which QStash rejects as "invalid scheme".
+    const response = await fetch(`${getPublishUrl()}/${targetUrl}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${qstashToken}`,

@@ -53,16 +53,21 @@ async function run() {
   console.log(`\n=== CRON HEALTH — ${now.toLocaleString("cs-CZ", { timeZone: "Europe/Prague" })} ===\n`);
 
   // ── 0. Scheduler health ───────────────────────────────────────────────────
+  const qstashUrl = process.env.QSTASH_URL;
   const qstashToken = process.env.QSTASH_TOKEN;
   const appUrl = process.env.APP_URL;
-  const qstashOk = !!(qstashToken && appUrl);
+  const cronSecret = process.env.CRON_SECRET;
+  const qstashOk = !!(qstashUrl && qstashToken && appUrl && cronSecret);
   console.log("Scheduler:");
-  console.log(`  type:     ${qstashOk ? "QStash (precise one-time)" : "Vercel daily cron (batch)"}`);
-  console.log(`  QSTASH_TOKEN: ${qstashToken ? "✅ set" : "❌ not set — one-time tasks will run in next daily batch"}`);
-  console.log(`  APP_URL:      ${appUrl ? `✅ ${appUrl}` : "❌ not set — required for QStash triggers"}`);
+  console.log(`  type:           ${qstashOk ? "QStash (precise one-time)" : "Vercel daily cron (batch)"}`);
+  console.log(`  exact one-time: ${qstashOk ? "enabled" : "disabled"}`);
+  console.log(`  QSTASH_URL:     ${qstashUrl ? `✅ ${qstashUrl}` : "❌ not set"}`);
+  console.log(`  QSTASH_TOKEN:   ${qstashToken ? "✅ set" : "❌ not set — one-time tasks will run in next daily batch"}`);
+  console.log(`  APP_URL:        ${appUrl ? `✅ ${appUrl}` : "❌ not set — required for QStash triggers"}`);
+  console.log(`  CRON_SECRET:    ${cronSecret ? "✅ set" : "❌ not set — QStash delivery will get 401"}`);
   if (!qstashOk) {
-    console.log("  ⚠️  Without QStash, one-time tasks run at 08:00 Praha (Vercel daily cron), not at the scheduled minute.");
-    console.log("  Setup: https://console.upstash.com/qstash → grab QSTASH_TOKEN, set APP_URL=https://your-app.vercel.app");
+    console.log("  ⚠️  Without all 4 vars, one-time tasks run at 08:00 Praha (Vercel daily cron), not at the scheduled minute.");
+    console.log("  Missing: " + [!qstashUrl && "QSTASH_URL", !qstashToken && "QSTASH_TOKEN", !appUrl && "APP_URL", !cronSecret && "CRON_SECRET"].filter(Boolean).join(", "));
   }
   console.log();
 

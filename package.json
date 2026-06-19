@@ -11,7 +11,9 @@
     "seed:local": "node scripts/seed-local.mjs",
     "seed:supabase": "node scripts/seed-supabase-demo.mjs",
     "validate:demo": "node scripts/validate-demo.mjs",
-    "diagnose:cron": "node scripts/diagnose-cron.mjs"
+    "diagnose:cron": "node scripts/diagnose-cron.mjs",
+    "test:qstash": "node scripts/test-qstash.mjs --keep",
+    "test:qstash:dry": "node scripts/test-qstash.mjs --dry"
   },
   "dependencies": {
     "@google/genai": "^2.8.0",
