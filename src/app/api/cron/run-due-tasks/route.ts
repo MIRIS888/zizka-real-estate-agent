@@ -23,7 +23,6 @@ function buildMarketEmailHtml(
 <p style="color:#999;font-size:12px">Automatický přehled ze Žižka Reality</p>`;
   }
   const rows = listings
-    .slice(0, 10)
     .map(
       (l) =>
         `<tr>
@@ -49,7 +48,7 @@ function buildMarketEmailHtml(
 
 function buildMarketEmailText(location: string, listings: { title: string; url: string }[]): string {
   if (listings.length === 0) return `Nové nabídky – ${location}\n\nDnes nebyly nalezeny žádné nové nabídky.\n\nAutomatický přehled ze Žižka Reality`;
-  return `Nové nabídky – ${location}\n\n${listings.slice(0, 10).map((l) => `- ${l.title}: ${l.url}`).join("\n")}\n\nAutomatický přehled ze Žižka Reality`;
+  return `Nové nabídky – ${location}\n\n${listings.map((l) => `- ${l.title}: ${l.url}`).join("\n")}\n\nAutomatický přehled ze Žižka Reality`;
 }
 
 // idempotency_key ties a task run to a specific scheduled window (next_run_at before execution)
