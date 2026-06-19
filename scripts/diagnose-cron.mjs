@@ -1,9 +1,9 @@
 /**
- * Diagnose cron/scheduled task system health.
+ * Cron / scheduled task system health diagnostic.
  * Usage: npm run diagnose:cron
  *
- * Requirements:
- *   NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local or environment.
+ * Requirements: NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in .env.local or environment.
+ * Never outputs access tokens, refresh tokens, or secrets.
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -50,9 +50,9 @@ const supabase = createClient(url, key, { auth: { persistSession: false } });
 
 async function run() {
   const now = new Date();
-  console.log("\n=== CRON HEALTH ===\n");
+  console.log(`\n=== CRON HEALTH — ${now.toLocaleString("cs-CZ", { timeZone: "Europe/Prague" })} ===\n`);
 
-  // 1. Vercel cron routes
+  // ── 1. Vercel cron routes ──────────────────────────────────────────────────
   let cronRoutes = [];
   try {
     const vj = JSON.parse(readFileSync("vercel.json", "utf8"));
@@ -60,25 +60,33 @@ async function run() {
   } catch {
     console.log("vercel.json not found or invalid\n");
   }
-  console.log("Vercel cron routes:");
+  console.log("Vercel cron routes (active):");
   for (const c of cronRoutes) {
     console.log(`  ${c.path.padEnd(40)} schedule: ${c.schedule}`);
   }
+  const legacyEndpoints = ["/api/cron/dispatcher", "/api/cron/morning-report"];
+  const legacyActive = legacyEndpoints.filter((p) => cronRoutes.some((c) => c.path === p));
+  console.log("\nLegacy endpoints:");
+  console.log(`  /api/cron/dispatcher      → ${legacyActive.includes("/api/cron/dispatcher") ? "⚠️  STILL IN VERCEL.JSON" : "✅ removed from vercel.json (returns 410)"}`);
+  console.log(`  /api/cron/morning-report  → ${legacyActive.includes("/api/cron/morning-report") ? "⚠️  STILL IN VERCEL.JSON" : "✅ removed from vercel.json (returns 410)"}`);
   console.log();
 
-  // 2. scheduled_tasks
+  // ── 2. scheduled_tasks ────────────────────────────────────────────────────
   const { data: tasks, error: tErr } = await supabase
     .from("scheduled_tasks")
-    .select("id, user_id, task_type, params, is_active, schedule_time, timezone, last_run_at, next_run_at, created_at")
-    .order("created_at", { ascending: false });
+    .select("id, user_id, task_type, params, schedule_time, schedule_days, timezone, is_active, last_run_at, next_run_at, created_at")
+    .order("task_type", { ascending: true });
 
   if (tErr) {
-    console.error("❌  Could not query scheduled_tasks:", tErr.message);
+    console.error("❌  scheduled_tasks:", tErr.message);
   } else {
     const active = tasks.filter((t) => t.is_active);
+    const noUserId = tasks.filter((t) => !t.user_id);
     const byUser = {};
+    const byType = {};
     for (const t of tasks) {
-      byUser[t.user_id] = (byUser[t.user_id] ?? 0) + 1;
+      byUser[t.user_id ?? "none"] = (byUser[t.user_id ?? "none"] ?? 0) + 1;
+      byType[t.task_type] = (byType[t.task_type] ?? 0) + 1;
     }
     const due = tasks.filter((t) => t.is_active && new Date(t.next_run_at) <= now);
 
@@ -86,43 +94,38 @@ async function run() {
     console.log(`  total:          ${tasks.length}`);
     console.log(`  active:         ${active.length}`);
     console.log(`  due now:        ${due.length}`);
-    console.log(`  by user_id:     ${Object.entries(byUser).map(([u, n]) => `${u.slice(0, 8)}… → ${n}`).join(", ")}`);
+    console.log(`  without user_id:${noUserId.length}${noUserId.length > 0 ? "  ⚠️  LEGACY RISK" : "  ✅"}`);
+    console.log(`  by type:        ${Object.entries(byType).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+    console.log(`  by user_id:     ${Object.entries(byUser).map(([u, n]) => `${u.slice(0, 8)}…=${n}`).join(", ")}`);
     console.log();
-
-    if (tasks.length > 0) {
-      console.log("  Tasks:");
-      for (const t of tasks) {
-        const loc = t.params?.location ?? "?";
-        const recip = maskEmail(t.params?.recipient_email);
-        console.log(`    [${t.is_active ? "ACTIVE" : "PAUSED"}] ${t.task_type} / ${loc}`);
-        console.log(`           schedule: ${t.schedule_time} ${t.timezone}`);
-        console.log(`           recipient: ${recip}`);
-        console.log(`           last_run: ${fmt(t.last_run_at)}`);
-        console.log(`           next_run: ${fmt(t.next_run_at)}`);
-      }
-      console.log();
+    for (const t of tasks) {
+      const loc = t.params?.location ?? "—";
+      const recip = maskEmail(t.params?.recipient_email);
+      const days = t.schedule_days ? `[${t.schedule_days.join(",")}]` : "all days";
+      console.log(`  [${t.is_active ? "ACTIVE" : "PAUSED"}] ${t.task_type}`);
+      if (loc !== "—") console.log(`         location:  ${loc}`);
+      console.log(`         schedule:  ${t.schedule_time} ${days} ${t.timezone}`);
+      console.log(`         recipient: ${recip}`);
+      console.log(`         last_run:  ${fmt(t.last_run_at)}`);
+      console.log(`         next_run:  ${fmt(t.next_run_at)}`);
     }
+    console.log();
 
     // Duplicate detection
     const seen = {};
     const dupes = [];
     for (const t of active) {
-      const key = `${t.task_type}|${t.params?.location ?? ""}|${t.schedule_time}`;
-      if (seen[key]) dupes.push(t);
-      else seen[key] = t;
+      const k = `${t.task_type}|${t.params?.location ?? ""}|${t.schedule_time}|${t.user_id}`;
+      if (seen[k]) dupes.push(t);
+      else seen[k] = t;
     }
-    console.log("Potential duplicates in scheduled_tasks:");
-    if (dupes.length === 0) {
-      console.log("  none");
-    } else {
-      for (const d of dupes) {
-        console.log(`  ⚠️  ${d.task_type} / ${d.params?.location} @ ${d.schedule_time} (id: ${d.id})`);
-      }
-    }
+    console.log("Potential duplicates:");
+    if (dupes.length === 0) console.log("  ✅ none");
+    else for (const d of dupes) console.log(`  ⚠️  ${d.task_type}/${d.params?.location} @ ${d.schedule_time}`);
     console.log();
   }
 
-  // 3. market_watch_rules (legacy)
+  // ── 3. market_watch_rules (legacy) ────────────────────────────────────────
   const { data: rules, error: rErr } = await supabase
     .from("market_watch_rules")
     .select("id, name, is_active, location_query, schedule_time, recipient_email, last_run_at")
@@ -132,51 +135,67 @@ async function run() {
     const activeRules = (rules ?? []).filter((r) => r.is_active);
     console.log("market_watch_rules (legacy system):");
     console.log(`  total:   ${(rules ?? []).length}`);
-    console.log(`  active:  ${activeRules.length}`);
-    if (activeRules.length > 0) {
-      console.log("  ⚠️  ACTIVE LEGACY RULES — these bypass user_id and the /tasks UI:");
-      for (const r of activeRules) {
-        console.log(`    ${r.name} @ ${r.schedule_time} → ${maskEmail(r.recipient_email)}`);
-      }
-    } else {
-      console.log("  ✅ No active legacy rules (decommissioned correctly).");
+    console.log(`  active:  ${activeRules.length}${activeRules.length > 0 ? "  ⚠️  ACTIVE — may cause duplicate emails" : "  ✅ all decommissioned"}`);
+    for (const r of activeRules) {
+      console.log(`    ⚠️  ${r.name} @ ${r.schedule_time} → ${maskEmail(r.recipient_email)}`);
     }
     console.log();
   }
 
-  // 4. Google account (sender)
-  const { data: ga } = await supabase
+  // ── 4. google_accounts ────────────────────────────────────────────────────
+  const { data: gas } = await supabase
     .from("google_accounts")
-    .select("email, token_expires_at, updated_at")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .select("id, user_id, email, token_expires_at, updated_at")
+    .order("updated_at", { ascending: false });
 
-  console.log("Email sender (Google account):");
-  if (!ga) {
-    console.log("  ⚠️  No Google account connected — cron emails CANNOT be sent.");
-  } else {
+  console.log("google_accounts:");
+  console.log(`  total:          ${(gas ?? []).length}`);
+  const noUid = (gas ?? []).filter((g) => !g.user_id);
+  console.log(`  without user_id:${noUid.length}${noUid.length > 0 ? "  ⚠️  should be backfilled" : "  ✅"}`);
+  for (const ga of gas ?? []) {
     const expired = ga.token_expires_at && new Date(ga.token_expires_at) < now;
     console.log(`  account: ${maskEmail(ga.email)}`);
-    console.log(`  token:   ${expired ? "⚠️  EXPIRED (will try refresh)" : "✅ valid"} — expires ${fmt(ga.token_expires_at)}`);
+    console.log(`  user_id: ${ga.user_id?.slice(0, 8) ?? "⚠️  none"}…`);
+    console.log(`  token:   ${expired ? "⚠️  EXPIRED (will refresh on next run)" : "✅ valid"} — expires ${fmt(ga.token_expires_at)}`);
   }
   console.log();
 
-  // 5. daily_report_runs
+  // ── 5. scheduled_task_runs ────────────────────────────────────────────────
   const { data: runs } = await supabase
+    .from("scheduled_task_runs")
+    .select("id, task_id, user_id, status, started_at, finished_at, error_message, idempotency_key")
+    .order("started_at", { ascending: false })
+    .limit(20);
+
+  const allRuns = runs ?? [];
+  const failed = allRuns.filter((r) => r.status === "failed");
+  const skipped = allRuns.filter((r) => r.status === "skipped");
+
+  console.log("scheduled_task_runs (last 20):");
+  console.log(`  total shown: ${allRuns.length}`);
+  console.log(`  failed:      ${failed.length}`);
+  console.log(`  skipped:     ${skipped.length}`);
+  if (allRuns.length === 0) {
+    console.log("  (no runs recorded yet)");
+  } else {
+    for (const r of allRuns.slice(0, 10)) {
+      const icon = r.status === "success" ? "✅" : r.status === "failed" ? "❌" : r.status === "skipped" ? "⏭️" : "🔄";
+      console.log(`  ${icon} ${r.status.padEnd(8)} ${fmt(r.started_at)}`);
+      if (r.error_message) console.log(`           error: ${r.error_message.slice(0, 80)}`);
+    }
+  }
+  console.log();
+
+  // ── 6. daily_report_runs (legacy ranní report log) ────────────────────────
+  const { data: druns } = await supabase
     .from("daily_report_runs")
     .select("report_date, executed_at, summary")
     .order("executed_at", { ascending: false })
     .limit(5);
 
-  console.log("Morning report runs (last 5):");
-  if (!runs || runs.length === 0) {
-    console.log("  none recorded");
-  } else {
-    for (const r of runs) {
-      console.log(`  ${r.report_date} — ${r.summary ?? "—"} (sent ${fmt(r.executed_at)})`);
-    }
-  }
+  console.log("daily_report_runs (legacy morning report log, last 5):");
+  if (!druns || druns.length === 0) console.log("  none recorded");
+  else for (const r of druns) console.log(`  ${r.report_date} — ${fmt(r.executed_at)} — ${r.summary ?? "—"}`);
   console.log();
 
   console.log("=== END ===\n");

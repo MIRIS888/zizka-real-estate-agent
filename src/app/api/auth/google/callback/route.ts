@@ -7,6 +7,7 @@ import {
   GOOGLE_TOKEN_COOKIE,
 } from "@/lib/google/oauth";
 import { saveGoogleAccount } from "@/lib/google/token-store";
+import { getAuthUser } from "@/lib/supabase/auth-server";
 
 function getPublicOrigin(request: NextRequest): string {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
@@ -34,9 +35,10 @@ export async function GET(request: NextRequest) {
     const redirectUri = `${origin}/api/auth/google/callback`;
     const token = await exchangeGoogleCode(code, redirectUri);
     const email = await fetchGoogleUserEmail(token.accessToken);
+    const user = await getAuthUser().catch(() => null);
 
     if (email) {
-      await saveGoogleAccount(email, token).catch(() => {
+      await saveGoogleAccount(email, token, user?.id).catch(() => {
         // Non-fatal: cron won't have a stored token but chat still works via cookie
       });
     }

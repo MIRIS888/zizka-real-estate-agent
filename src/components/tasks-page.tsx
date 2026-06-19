@@ -20,7 +20,16 @@ import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { ScheduledTask } from "@/lib/tasks/scheduled-tasks";
 
-type TasksResponse = { tasks: ScheduledTask[] };
+type LastRun = {
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  error_message: string | null;
+};
+
+type TaskWithRun = ScheduledTask & { last_run: LastRun | null };
+
+type TasksResponse = { tasks: TaskWithRun[]; googleEmail: string | null };
 
 function useTheme() {
   const [dark, setDark] = useState(() =>
@@ -75,7 +84,8 @@ function StatusBadge({ isActive }: { isActive: boolean }) {
 
 export function TasksPage() {
   const { dark, toggle: toggleTheme } = useTheme();
-  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  const [tasks, setTasks] = useState<TaskWithRun[]>([]);
+  const [googleEmail, setGoogleEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -87,6 +97,7 @@ export function TasksPage() {
       .then((data: TasksResponse) => {
         if (mounted) {
           setTasks(data.tasks);
+          setGoogleEmail(data.googleEmail);
           setLoading(false);
         }
       })
@@ -99,7 +110,7 @@ export function TasksPage() {
     return () => { mounted = false; };
   }, []);
 
-  async function handleToggle(task: ScheduledTask) {
+  async function handleToggle(task: TaskWithRun) {
     setBusyIds((s) => new Set(s).add(task.id));
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
@@ -122,8 +133,14 @@ export function TasksPage() {
     }
   }
 
-  async function handleDelete(task: ScheduledTask) {
-    if (!confirm(`Opravdu smazat úlohu pro ${(task.params as { location: string }).location}?`)) return;
+  function taskLabel(task: TaskWithRun): string {
+    if (task.task_type === "morning_report") return "Ranní report";
+    const loc = (task.params as { location?: string }).location;
+    return loc ? `Realitní přehled — ${loc}` : "Realitní přehled";
+  }
+
+  async function handleDelete(task: TaskWithRun) {
+    if (!confirm(`Opravdu smazat: ${taskLabel(task)}?`)) return;
     setBusyIds((s) => new Set(s).add(task.id));
     try {
       const res = await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
@@ -258,8 +275,10 @@ export function TasksPage() {
                 {tasks.length} {tasks.length === 1 ? "úloha" : tasks.length < 5 ? "úlohy" : "úloh"}
               </p>
               {tasks.map((task) => {
-                const params = task.params as { location: string; transaction?: string };
+                const params = task.params as { location?: string; transaction?: string; recipient_email?: string };
                 const isBusy = busyIds.has(task.id);
+                const lastRun = task.last_run;
+                const lastRunFailed = lastRun?.status === "failed";
                 return (
                   <div
                     key={task.id}
@@ -270,10 +289,10 @@ export function TasksPage() {
                         {/* Title row */}
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-[var(--foreground)]">
-                            Realitní přehled
+                            {taskLabel(task)}
                           </span>
                           <StatusBadge isActive={task.is_active} />
-                          <FrequencyBadge frequency={task.frequency} />
+                          <FrequencyBadge frequency={task.task_type === "morning_report" ? "Po–Pá" : task.frequency} />
                           {params.transaction === "rent" && (
                             <span className="rounded bg-[var(--accent-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
                               pronájem
@@ -283,17 +302,19 @@ export function TasksPage() {
 
                         {/* Details */}
                         <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-[var(--foreground-muted)]">
-                          <span className="flex items-center gap-1.5">
-                            <MapPin className="size-3 shrink-0" />
-                            {params.location}
-                          </span>
+                          {params.location && (
+                            <span className="flex items-center gap-1.5">
+                              <MapPin className="size-3 shrink-0" />
+                              {params.location}
+                            </span>
+                          )}
                           <span className="flex items-center gap-1.5">
                             <Clock className="size-3 shrink-0" />
                             {task.schedule_time} ({task.timezone.replace("Europe/", "")})
                           </span>
                           <span className="flex items-center gap-1.5">
                             <Calendar className="size-3 shrink-0" />
-                            Příští spuštění: {formatLocalTime(task.next_run_at, task.timezone)}
+                            Příště: {formatLocalTime(task.next_run_at, task.timezone)}
                           </span>
                           {task.last_run_at && (
                             <span className="flex items-center gap-1.5">
@@ -301,7 +322,23 @@ export function TasksPage() {
                               Naposledy: {formatLocalTime(task.last_run_at, task.timezone)}
                             </span>
                           )}
+                          {googleEmail && (
+                            <span className="flex items-center gap-1.5 opacity-70">
+                              <svg className="size-3 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg>
+                              {googleEmail}
+                            </span>
+                          )}
                         </div>
+
+                        {/* Last run error */}
+                        {lastRunFailed && lastRun.error_message && (
+                          <p
+                            className="rounded px-2 py-1 text-[11px] leading-4"
+                            style={{ backgroundColor: "var(--error-bg)", color: "var(--error-text)" }}
+                          >
+                            Poslední chyba: {lastRun.error_message}
+                          </p>
+                        )}
                       </div>
 
                       {/* Actions */}

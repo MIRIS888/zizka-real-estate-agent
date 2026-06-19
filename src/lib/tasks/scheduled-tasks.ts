@@ -49,39 +49,53 @@ function localDayTimeToUtc(
   return new Date(approxUtc.getTime() - offset2);
 }
 
+function getIsoWeekday(utc: Date, timezone: string): number {
+  const weekdayStr = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" })
+    .format(utc);
+  const map: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+  return map[weekdayStr] ?? 1;
+}
+
 // Returns the next UTC instant when `scheduleTime` (HH:MM) occurs in `timezone`,
-// after `afterDate` (defaults to now). Checks today then tomorrow.
-export function computeNextRunAt(scheduleTime: string, timezone: string, afterDate?: Date): Date {
+// after `afterDate` (defaults to now).
+// If `scheduleDays` is provided (ISO weekday 1=Mon..7=Sun), only matching days are considered.
+export function computeNextRunAt(
+  scheduleTime: string,
+  timezone: string,
+  afterDate?: Date,
+  scheduleDays?: number[] | null,
+): Date {
   const [h, m] = scheduleTime.split(":").map(Number);
   const now = afterDate ?? new Date();
 
-  for (let dayOffset = 0; dayOffset <= 1; dayOffset++) {
+  // Check up to 8 days ahead to find a scheduled day
+  for (let dayOffset = 0; dayOffset <= 8; dayOffset++) {
     const probe = new Date(now.getTime() + dayOffset * 86_400_000);
     const local = getLocalParts(probe, timezone);
     const candidate = localDayTimeToUtc(local.year, local.month, local.day, h, m, timezone);
-    if (candidate > now) return candidate;
+    if (candidate <= now) continue;
+    if (scheduleDays && scheduleDays.length > 0) {
+      const dow = getIsoWeekday(candidate, timezone);
+      if (!scheduleDays.includes(dow)) continue;
+    }
+    return candidate;
   }
 
-  // Fallback: day after tomorrow (edge case — should not happen in normal operation)
-  const d2 = new Date(now.getTime() + 2 * 86_400_000);
-  const local = getLocalParts(d2, timezone);
+  // Fallback — should not happen
+  const d9 = new Date(now.getTime() + 9 * 86_400_000);
+  const local = getLocalParts(d9, timezone);
   return localDayTimeToUtc(local.year, local.month, local.day, h, m, timezone);
 }
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
-const ScheduledTaskParamsSchema = z.object({
-  location: z.string(),
-  transaction: z.enum(["sale", "rent"]).default("sale"),
-  recipient_email: z.string().optional(),
-});
-
 const ScheduledTaskRowSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
-  task_type: z.literal("market_digest"),
-  params: ScheduledTaskParamsSchema,
+  task_type: z.enum(["market_digest", "morning_report"]),
+  params: z.record(z.string(), z.unknown()),
   schedule_time: z.string(),
+  schedule_days: z.array(z.number()).nullable(),
   timezone: z.string(),
   frequency: z.literal("daily"),
   is_active: z.boolean(),
@@ -193,7 +207,7 @@ export async function updateScheduledTask(
         ...(patch.location ? { location: patch.location } : {}),
         ...(patch.transaction ? { transaction: patch.transaction } : {}),
       },
-      next_run_at: computeNextRunAt(scheduleTime, timezone).toISOString(),
+      next_run_at: computeNextRunAt(scheduleTime, timezone, undefined, current.schedule_days).toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
@@ -254,15 +268,21 @@ export async function getDueScheduledTasks(): Promise<ScheduledTask[]> {
   return (data ?? []).map((row) => ScheduledTaskRowSchema.parse(row));
 }
 
-// Updates last_run_at and advances next_run_at after a successful execution
-export async function markTaskRun(id: string, scheduleTime: string, timezone: string): Promise<void> {
+// Updates last_run_at and advances next_run_at after a successful execution.
+// Pass scheduleDays so weekday-restricted tasks (e.g. morning_report) skip weekends.
+export async function markTaskRun(
+  id: string,
+  scheduleTime: string,
+  timezone: string,
+  scheduleDays?: number[] | null,
+): Promise<void> {
   const supabase = createSupabaseServiceClient();
   const now = new Date();
   const { error } = await supabase
     .from("scheduled_tasks")
     .update({
       last_run_at: now.toISOString(),
-      next_run_at: computeNextRunAt(scheduleTime, timezone, now).toISOString(),
+      next_run_at: computeNextRunAt(scheduleTime, timezone, now, scheduleDays).toISOString(),
       updated_at: now.toISOString(),
     })
     .eq("id", id);

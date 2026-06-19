@@ -352,14 +352,11 @@ export async function exchangeGoogleCode(code: string, redirectUri: string) {
   return tokenStore.token;
 }
 
-async function refreshAccessToken(token: StoredGoogleToken) {
-  if (!token.refreshToken) {
-    return token.accessToken;
-  }
-
-  if (token.expiresAt && token.expiresAt > Date.now() + 60_000) {
-    return token.accessToken;
-  }
+// Exported for use by cron token-store: refreshes a token and returns the full updated token.
+// Does NOT update tokenStore (in-memory) — callers manage persistence themselves.
+export async function refreshGoogleToken(token: StoredGoogleToken): Promise<StoredGoogleToken> {
+  if (!token.refreshToken) return token;
+  if (token.expiresAt && token.expiresAt > Date.now() + 60_000) return token;
 
   const environment = getGoogleOAuthEnvironment();
   const response = await fetch(GOOGLE_TOKEN_URL, {
@@ -378,16 +375,27 @@ async function refreshAccessToken(token: StoredGoogleToken) {
   }
 
   const payload = (await response.json()) as GoogleTokenResponse;
-  tokenStore.token = {
+  return {
     ...token,
     accessToken: payload.access_token,
-    expiresAt: payload.expires_in
-      ? Date.now() + payload.expires_in * 1000
-      : token.expiresAt,
+    refreshToken: payload.refresh_token ?? token.refreshToken,
+    expiresAt: payload.expires_in ? Date.now() + payload.expires_in * 1000 : token.expiresAt,
     scope: payload.scope ?? token.scope,
   };
+}
 
-  return tokenStore.token.accessToken;
+async function refreshAccessToken(token: StoredGoogleToken) {
+  if (!token.refreshToken) {
+    return token.accessToken;
+  }
+
+  if (token.expiresAt && token.expiresAt > Date.now() + 60_000) {
+    return token.accessToken;
+  }
+
+  const refreshed = await refreshGoogleToken(token);
+  tokenStore.token = refreshed;
+  return refreshed.accessToken;
 }
 
 export async function findGoogleCalendarSlots(
