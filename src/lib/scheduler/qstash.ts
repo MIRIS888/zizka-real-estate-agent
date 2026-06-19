@@ -1,4 +1,7 @@
-const QSTASH_PUBLISH_URL = "https://qstash.upstash.io/v2/publish";
+function getPublishUrl(): string {
+  const base = (process.env.QSTASH_URL ?? "https://qstash.upstash.io").replace(/\/$/, "");
+  return `${base}/v2/publish`;
+}
 
 export type QStashResult = { messageId: string };
 
@@ -12,7 +15,7 @@ export async function scheduleQStashTrigger(
 ): Promise<QStashResult | null> {
   const notBefore = Math.floor(runAt.getTime() / 1000);
   try {
-    const response = await fetch(`${QSTASH_PUBLISH_URL}/${encodeURIComponent(targetUrl)}`, {
+    const response = await fetch(`${getPublishUrl()}/${encodeURIComponent(targetUrl)}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${qstashToken}`,
@@ -32,7 +35,7 @@ export async function scheduleQStashTrigger(
 }
 
 export function isQStashConfigured(): boolean {
-  return !!(process.env.QSTASH_TOKEN && process.env.APP_URL);
+  return !!(process.env.QSTASH_URL && process.env.QSTASH_TOKEN && process.env.APP_URL);
 }
 
 export function getRunDueTasksUrl(): string {

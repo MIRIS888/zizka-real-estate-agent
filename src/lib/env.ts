@@ -129,12 +129,14 @@ export function isFirecrawlConfigured() {
 }
 
 export function isQStashConfigured(): boolean {
-  return !!(process.env.QSTASH_TOKEN && process.env.APP_URL);
+  return !!(process.env.QSTASH_URL && process.env.QSTASH_TOKEN && process.env.APP_URL);
 }
 
-export function getQStashConfig(): { token: string; appUrl: string } {
+export function getQStashConfig(): { qstashUrl: string; token: string; appUrl: string } {
+  const qstashUrl = process.env.QSTASH_URL;
   const token = process.env.QSTASH_TOKEN;
   const appUrl = process.env.APP_URL;
-  if (!token || !appUrl) throw new Error("QSTASH_TOKEN and APP_URL must be set for QStash scheduling.");
-  return { token, appUrl };
+  if (!qstashUrl || !token || !appUrl)
+    throw new Error("QSTASH_URL, QSTASH_TOKEN and APP_URL must be set for QStash scheduling.");
+  return { qstashUrl, token, appUrl };
 }
