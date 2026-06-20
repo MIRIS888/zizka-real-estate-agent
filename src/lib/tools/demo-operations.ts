@@ -167,7 +167,7 @@ export async function createViewingEmailDraft(
     recommendedSlot,
     subject: draft.subject,
     body: draft.body,
-    recipientEmail: input.recipientEmail ?? "zajemce@example.com",
+    recipientEmail: input.recipientEmail ?? null,
     source: recommendedSlot ? "google_calendar" : (availability ? "no_google_slots" : "not_connected"),
     alternatives: calendarSlots.slice(1),
     freeWindows: availability?.freeWindows ?? [],

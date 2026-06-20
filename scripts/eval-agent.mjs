@@ -95,6 +95,18 @@ function isStandaloneConfirm(message) {
   return STANDALONE_CONFIRM_PHRASES.has(normMsg(message));
 }
 
+function isValidRealEmail(to) {
+  if (!to || !to.includes("@")) return false;
+  const t = to.toLowerCase().trim();
+  return (
+    !t.endsWith("@example.com") &&
+    !t.startsWith("zajemce@") &&
+    !t.startsWith("klient@") &&
+    !t.startsWith("test@") &&
+    !t.startsWith("recipient@")
+  );
+}
+
 // ─── Eval scenarios ───────────────────────────────────────────────────────────
 
 const scenarios = [
@@ -285,6 +297,63 @@ const scenarios = [
     id: "GATE-30",
     desc: "'pošli ranní report' → NOT blocked (has context word 'ranní report')",
     fn: () => !isStandaloneConfirm("pošli ranní report na můj email"),
+  },
+  // ── Draft-aware confirmation gate ────────────────────────────────────────────
+  {
+    id: "DRAFT-31",
+    desc: "zajemce@example.com → NOT valid real email (placeholder blocked)",
+    fn: () => isValidRealEmail("zajemce@example.com") === false,
+  },
+  {
+    id: "DRAFT-32",
+    desc: "null → NOT valid real email",
+    fn: () => isValidRealEmail(null) === false,
+  },
+  {
+    id: "DRAFT-33",
+    desc: "sara.knapik24@gmail.com → valid real email",
+    fn: () => isValidRealEmail("sara.knapik24@gmail.com") === true,
+  },
+  {
+    id: "DRAFT-34",
+    desc: "klient@example.com → NOT valid real email",
+    fn: () => isValidRealEmail("klient@example.com") === false,
+  },
+  {
+    id: "DRAFT-35",
+    desc: "'ok pošli' + draft bez recipienta → standalone confirm + no valid email",
+    fn: () => {
+      const isConfirm = isStandaloneConfirm("ok pošli");
+      const hasDraft = true;
+      const hasValidRecipient = isValidRealEmail(null);
+      // should route to "ask for recipient"
+      return isConfirm && hasDraft && !hasValidRecipient;
+    },
+  },
+  {
+    id: "DRAFT-36",
+    desc: "'ok pošli' + draft s recipientem → standalone confirm + valid email → confirmation",
+    fn: () => {
+      const isConfirm = isStandaloneConfirm("ok pošli");
+      const hasDraft = true;
+      const hasValidRecipient = isValidRealEmail("sara.knapik24@gmail.com");
+      // should route to send_email confirmation
+      return isConfirm && hasDraft && hasValidRecipient;
+    },
+  },
+  {
+    id: "DRAFT-37",
+    desc: "'ok pošli' + žádný draft → standalone confirm + no draft → no pending action",
+    fn: () => {
+      const isConfirm = isStandaloneConfirm("ok pošli");
+      const hasDraft = false;
+      return isConfirm && !hasDraft;
+    },
+  },
+  {
+    id: "DRAFT-38",
+    desc: "test@example.com → NOT valid real email",
+    fn: () => isValidRealEmail("test@example.com") === false,
   },
 ];
 

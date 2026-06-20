@@ -1083,7 +1083,7 @@ async function executeToolAction(
         requiresConfirmation: true,
         source,
         emailDraft: {
-          to: draft.recipientEmail,
+          to: draft.recipientEmail ?? null,
           subject: draft.subject,
           body: draft.body,
         },
@@ -2262,6 +2262,18 @@ async function executeToolAction(
   throw new Error(`Unsupported agent tool: ${action.toolName}`);
 }
 
+function isValidRealEmail(to: string | null | undefined): to is string {
+  if (!to || !to.includes("@")) return false;
+  const t = to.toLowerCase().trim();
+  return (
+    !t.endsWith("@example.com") &&
+    !t.startsWith("zajemce@") &&
+    !t.startsWith("klient@") &&
+    !t.startsWith("test@") &&
+    !t.startsWith("recipient@")
+  );
+}
+
 export async function runAgent(
   userMessage: string,
   options?: {
@@ -2272,6 +2284,7 @@ export async function runAgent(
     confirmationToken?: string;
     pendingTool?: PendingTool;
     threadId?: string;
+    lastEmailDraft?: { to: string | null; subject: string; body: string } | null;
   },
 ): Promise<ChatResponse> {
   if (!isGeminiConfigured()) {
@@ -2290,8 +2303,9 @@ export async function runAgent(
   }
 
   // Backend hard stop: standalone confirmation-like message with no pending action.
-  // Prevents Gemini from interpreting "ano pošli" as a new task in a fresh chat
-  // where no confirmation flow has been started. Must run before any Gemini call.
+  // Three branches: (1) draft with valid recipient → send confirmation preview,
+  // (2) draft without recipient → ask for recipient, (3) no draft → no pending action.
+  // Must run before any Gemini call.
   if (!options?.pendingTool) {
     const normMsg = userMessage
       .trim()
@@ -2308,6 +2322,49 @@ export async function runAgent(
       "proved", "zaloz", "vytvor",
     ]);
     if (STANDALONE_CONFIRM_PHRASES.has(normMsg)) {
+      const lastDraft = options?.lastEmailDraft ?? null;
+
+      if (lastDraft) {
+        if (!isValidRealEmail(lastDraft.to)) {
+          return {
+            intent: "email",
+            requiresConfirmation: false,
+            emailDraft: lastDraft,
+            message:
+              "Mám připravený návrh e-mailu, ale chybí skutečná e-mailová adresa příjemce. Na jakou adresu ho mám poslat?",
+          };
+        }
+
+        // Valid recipient — build send_email confirmation preview from the draft
+        const draftPendingTool: PendingTool = {
+          toolName: "send_email",
+          payload: { to: lastDraft.to, subject: lastDraft.subject, body: lastDraft.body },
+        };
+        if (!options?.userId) {
+          return {
+            intent: "email",
+            requiresConfirmation: false,
+            message: "Akci nelze provést — uživatel není přihlášen.",
+          };
+        }
+        const draftToken = generateConfirmationToken(options.userId, draftPendingTool, options.threadId);
+        if (!draftToken) {
+          return {
+            intent: "email",
+            requiresConfirmation: false,
+            message: "Bezpečnostní potvrzení není nakonfigurované (chybí HMAC_SECRET). Akci nelze provést.",
+          };
+        }
+        return {
+          intent: "email",
+          requiresConfirmation: true,
+          emailDraft: lastDraft,
+          message: `Připravil jsem e-mail k odeslání:\n\n**Komu:** ${lastDraft.to}\n**Předmět:** ${lastDraft.subject}\n\nText e-mailu:\n${lastDraft.body}\n\nMám tento e-mail odeslat? Potvrďte prosím 'ano pošli'.`,
+          confirmationToken: draftToken,
+          pendingTool: draftPendingTool,
+        };
+      }
+
       return {
         intent: "general",
         requiresConfirmation: false,

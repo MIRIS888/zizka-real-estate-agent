@@ -377,7 +377,7 @@ function GeneratedOutputsView({ outputs }: { outputs: GeneratedOutput[] }) {
 function EmailDraftView({
   draft,
 }: {
-  draft: { to: string; subject: string; body: string };
+  draft: { to: string | null; subject: string; body: string };
 }) {
   return (
     <div className="mt-4 rounded-xl border bg-[var(--surface)] px-5 py-4">
@@ -396,7 +396,7 @@ function EmailDraftView({
       </div>
       <p className="mb-0.5 text-xs text-[var(--foreground-muted)]">
         <span className="text-[var(--foreground-muted)]">Komu: </span>
-        <span className="font-medium text-[var(--foreground)]">{draft.to}</span>
+        <span className="font-medium text-[var(--foreground)]">{draft.to || "neuvedeno"}</span>
       </p>
       <p className="mb-4 text-xs text-[var(--foreground-muted)]">
         <span className="text-[var(--foreground-muted)]">Předmět: </span>

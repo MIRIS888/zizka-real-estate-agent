@@ -41,7 +41,7 @@ export const ChatResponseSchema = z.object({
   requiresConfirmation: z.boolean(),
   emailDraft: z
     .object({
-      to: z.string(),
+      to: z.string().nullable(),
       subject: z.string(),
       body: z.string(),
     })

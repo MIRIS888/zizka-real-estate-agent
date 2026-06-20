@@ -34,6 +34,7 @@ export async function POST(request: Request) {
     // Resolve or create thread
     let resolvedThreadId = threadId;
     let chatHistory: ChatHistoryItem[] = history ?? [];
+    let lastEmailDraft: { to: string | null; subject: string; body: string } | null = null;
 
     if (resolvedThreadId) {
       // Verify thread belongs to user and load history
@@ -51,13 +52,15 @@ export async function POST(request: Request) {
 
       const { data: msgs } = await supabase
         .from("chat_messages")
-        .select("role, content")
+        .select("role, content, metadata")
         .eq("thread_id", resolvedThreadId)
         .order("created_at", { ascending: true })
         .limit(20);
 
+      type DbMessage = { role: string; content: string; metadata: Record<string, unknown> | null };
+
       if (msgs && msgs.length > 0) {
-        chatHistory = (msgs as { role: string; content: string }[])
+        chatHistory = (msgs as DbMessage[])
           .filter((m) => m.role === "user" || m.role === "assistant")
           .map((m) => {
             let text = m.content;
@@ -80,6 +83,26 @@ export async function POST(request: Request) {
             }
             return { role: m.role as "user" | "assistant", content: text.slice(0, 8_000) };
           });
+
+        // Extract last email draft from this thread (server-side source of truth).
+        // Scoped strictly to resolvedThreadId — never reads from another thread.
+        const lastDraftMsg = [...(msgs as DbMessage[])]
+          .reverse()
+          .find((m) => {
+            if (m.role !== "assistant" || !m.metadata) return false;
+            const draft = m.metadata.emailDraft as { subject?: unknown; body?: unknown } | null | undefined;
+            return draft && typeof draft.subject === "string" && typeof draft.body === "string";
+          });
+        const rawDraft = lastDraftMsg?.metadata?.emailDraft as
+          | { to?: string | null; subject: string; body: string }
+          | undefined;
+        if (rawDraft) {
+          lastEmailDraft = {
+            to: typeof rawDraft.to === "string" ? rawDraft.to : null,
+            subject: rawDraft.subject,
+            body: rawDraft.body,
+          };
+        }
       }
     } else {
       // Create new thread immediately (first message determines title)
@@ -105,6 +128,7 @@ export async function POST(request: Request) {
       confirmationToken,
       pendingTool,
       threadId: resolvedThreadId,
+      lastEmailDraft,
     });
 
     // Persist messages to DB (best-effort — never fail the response)
