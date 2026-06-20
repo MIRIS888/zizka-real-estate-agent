@@ -511,7 +511,7 @@ export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   {
     name: "create_email_draft",
     description:
-      "Vytvoří profesionální návrh e-mailu zájemci a doporučí termín prohlídky podle dostupnosti. Použij, když uživatel chce napsat e-mail k nemovitosti nebo prohlídce. Tato funkce e-mail neodesílá.",
+      "Vytvoří profesionální návrh e-mailu v češtině. Použij pro jakýkoliv e-mail — pozvání na prohlídku, info o nemovitostech, nabídku, odpověď. E-mail neodesílá. Pro info e-maily bez schůzky ponech dateRange null.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -521,7 +521,12 @@ export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
         },
         propertyTitle: {
           type: Type.STRING,
-          description: "Název nebo popis nemovitosti.",
+          description: "Název nebo popis nemovitosti nebo tématu e-mailu.",
+        },
+        emailPurpose: {
+          type: Type.STRING,
+          description:
+            "Účel e-mailu — co má obsahovat a co NE. Příklady: 'informace o interních off-market nabídkách bez pozvání na schůzku', 'pozvání na prohlídku bytu', 'odpověď na dotaz o nájmu'. Pokud neuvedeno, výchozí je pozvání na prohlídku.",
         },
         tone: {
           type: Type.STRING,
@@ -530,7 +535,8 @@ export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
         },
         dateRange: {
           type: Type.OBJECT,
-          description: "Období pro hledání termínu.",
+          description:
+            "Období pro hledání termínu prohlídky. Nastav pouze pro schůzky/prohlídky — pro info e-maily vynech.",
           properties: {
             from: { type: Type.STRING, description: "Datum od ve formátu YYYY-MM-DD." },
             to: { type: Type.STRING, description: "Datum do ve formátu YYYY-MM-DD." },
@@ -844,7 +850,11 @@ STYLE GUIDANCE:
 - Sound like a real person, not a template. Vary your sentence structure.
 - One idea per paragraph. Three paragraphs is usually enough.
 
-IF recommendedSlot IS NULL or empty:
+EMAIL TYPE — determined by emailPurpose field:
+- If emailPurpose describes an INFO email (e.g. "informace o interních nabídkách", "info o off-market nemovitostech"): write a concise informational email. Do NOT propose a meeting, do NOT invite to suggest a time, do NOT mention prohlídka. Just inform.
+- If emailPurpose describes a VIEWING/MEETING email or is not set: follow viewing email rules below.
+
+IF recommendedSlot IS NULL or empty AND email is viewing type:
 - Do not mention a specific time or date.
 - Invite the recipient to suggest a suitable time ("Navrhněte prosím termín, který Vám vyhovuje.").
 
@@ -861,13 +871,15 @@ WHAT TO AVOID — these phrases make emails sound machine-generated:
 
 WHAT TO AIM FOR:
 - Open that gets straight to the point after the greeting
-- Clear proposed time/topic stated naturally mid-sentence (or invitation to suggest time if no slot)
+- Content matched to emailPurpose (info vs. viewing invitation)
 - A brief, warm close that invites a reply
-- Sign off: "S pozdravem,\nPepa / Žižka Reality"
+- Sign off: "S pozdravem,\\nPepa / Žižka Reality"
 
 SLOTS: If recommendedSlot is provided, it was validated by a server guard and is always in the future. Copy the slot label exactly as given — do not reformat, reinterpret, or invent alternative times.
 
-SUBJECT: Short, specific, plain text. E.g. "Schůzka – prohlídka bytu – návrh termínu" or "Prohlídka bytu v Holešovicích – návrh termínu".
+SUBJECT: Short, specific, plain text — matched to the email purpose. Examples:
+- Viewing: "Prohlídka bytu v Holešovicích – návrh termínu"
+- Info: "Interní nabídky nemovitostí – Žižka Reality"
 
 Return only valid JSON:
 {
@@ -934,6 +946,7 @@ export async function generateEmailDraft(input: {
   recommendedSlot: string | null;
   alternativeSlots: string[];
   recipientEmail?: string;
+  emailPurpose?: string;
 }): Promise<{ subject: string; body: string }> {
   const { client, model } = createGeminiClient();
 

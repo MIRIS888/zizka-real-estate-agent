@@ -169,6 +169,62 @@ const scenarios = [
       return caps.gmailRead && caps.gmailSend && caps.calendarRead && caps.calendarWrite;
     },
   },
+  // ── Regression scenarios ─────────────────────────────────────────────────────
+  {
+    id: "REG-15",
+    desc: "email s 'termín prohlídky' a noMeeting=true → guardrail fails (diacritics variant)",
+    fn: () => {
+      const body = "Rádi bychom Vám navrhli termín prohlídky na příští týden.";
+      return validateEmailContent(body, "Nabídka bytu", { noMeeting: true }).ok === false;
+    },
+  },
+  {
+    id: "REG-16",
+    desc: "email s 'setkání' a noMeeting=true → guardrail fails",
+    fn: () => {
+      const body = "Dovolujeme si Vás pozvat na osobní setkání v naší kanceláři.";
+      return validateEmailContent(body, "Interní nabídka", { noMeeting: true }).ok === false;
+    },
+  },
+  {
+    id: "REG-17",
+    desc: "'ano pošli' bez pending → NENÍ confirmation_reply",
+    fn: () => classifyIntent("ano pošli", false) !== "confirmation_reply",
+  },
+  {
+    id: "REG-18",
+    desc: "'ano pošli' s pending → je confirmation_reply",
+    fn: () => classifyIntent("ano pošli", true) === "confirmation_reply",
+  },
+  {
+    id: "REG-19",
+    desc: "stack trace v message → guardrail fails",
+    fn: () => {
+      const msg = "TypeError: Cannot read property 'map' of undefined\n  at Object.handler (run-agent.ts:45)";
+      return validateFinalMessage(msg).ok === false;
+    },
+  },
+  {
+    id: "REG-20",
+    desc: "normální text → guardrail passes",
+    fn: () => {
+      const msg = "Zde jsou výsledky za Q1: celkem 12 nových klientů, z toho 5 z Facebooku.";
+      return validateFinalMessage(msg).ok === true;
+    },
+  },
+  {
+    id: "REG-21",
+    desc: "'ne zruš' s pending → je confirmation_reply (reject path)",
+    fn: () => classifyIntent("ne, zruš to", true) === "confirmation_reply",
+  },
+  {
+    id: "REG-22",
+    desc: "partial JSON (not valid) → guardrail passes (not raw JSON)",
+    fn: () => {
+      const msg = "{ toto není validní json ale začíná závorkou";
+      return validateFinalMessage(msg).ok === true;
+    },
+  },
 ];
 
 // ─── Runner ───────────────────────────────────────────────────────────────────

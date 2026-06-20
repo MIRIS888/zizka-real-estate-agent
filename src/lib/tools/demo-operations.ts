@@ -160,6 +160,7 @@ export async function createViewingEmailDraft(
     recommendedSlot: recommendedSlot?.label ?? null,
     alternativeSlots: calendarSlots.slice(1).map((slot) => slot.label),
     recipientEmail: input.recipientEmail,
+    emailPurpose: input.emailPurpose,
   });
 
   return {

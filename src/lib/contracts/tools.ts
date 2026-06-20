@@ -36,6 +36,7 @@ export const FindCalendarSlotsInputSchema = z.object({
 export const CreateEmailDraftInputSchema = z.object({
   recipientEmail: z.email().optional(),
   propertyTitle: z.string().min(1).max(200).optional(),
+  emailPurpose: z.string().max(400).optional(),
   tone: z.enum(["formal", "friendly"]).default("formal"),
   dateRange: DateRangeSchema.optional(),
   durationMinutes: z.number().int().min(15).max(240).optional(),
