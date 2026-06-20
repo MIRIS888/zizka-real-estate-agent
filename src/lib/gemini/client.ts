@@ -188,6 +188,12 @@ Pokud předchozí odpověď asistenta obsahovala analytická data (leady, klient
   → Pokud kontext nestačí k určení entity nebo období, doptej se jednou otázkou — NEVOLEJ tool s vymyšlenými parametry
 NIKDY neodpovídej na follow-up dotaz bez zavolání příslušného toolu — uživatel očekává čerstvá data, ne odhad.
 
+PREZENTACE:
+"vytvoř prezentaci" / "připrav prezentaci" / "udělej slidy" / "udělej PPTX" / "report pro vedení se třemi slidy":
+  → zavolej POUZE create_presentation (nevyžaduje potvrzení)
+  → NEPOKRAČUJ na create_weekly_report
+  → Uživatel uvidí náhled slidů a tlačítko ke stažení PPTX
+
 COMPOUND REQUESTS — VÍCE SCHEDULING ÚLOH:
 Pokud jedna zpráva obsahuje více plánovaných úloh (různé lokality, časy, schedule_kind), VŽDY použij create_scheduled_tasks_batch — nikdy nevytvárej je postupně přes opakované create_scheduled_task.
 Příklad: "v 22:15 mi pošli Praha Holešovice a každý den v 6:00 Praha Karlín" → jeden batch se 2 úlohami.
@@ -585,6 +591,48 @@ export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
           description: "Cílové publikum reportu.",
         },
       },
+    },
+  },
+  {
+    name: "create_presentation",
+    description:
+      "Vytvoří PowerPoint prezentaci (PPTX) ke stažení. Použij pro dotazy jako 'vytvoř prezentaci', 'připrav slidy', 'udělej PPTX', 'report pro vedení se třemi slidy'. Nevyžaduje potvrzení.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        title: {
+          type: Type.STRING,
+          description: "Název prezentace, např. 'Výsledky Q1 2026'.",
+        },
+        topic: {
+          type: Type.STRING,
+          description: "Téma nebo popis obsahu prezentace.",
+        },
+        audience: {
+          type: Type.STRING,
+          enum: ["vedení", "klient", "interní tým"],
+          description: "Cílové publikum.",
+        },
+        slideCount: {
+          type: Type.INTEGER,
+          description: "Počet slidů, výchozí 3, maximum 6.",
+        },
+        sourceData: {
+          type: Type.OBJECT,
+          description: "Volitelná data pro obsah slidů.",
+          properties: {
+            summary: {
+              type: Type.STRING,
+              description: "Textové shrnutí pro slide s výsledky.",
+            },
+            metrics: {
+              type: Type.OBJECT,
+              description: "Klíčové metriky jako slovník název→hodnota.",
+            },
+          },
+        },
+      },
+      required: ["title", "topic"],
     },
   },
   {

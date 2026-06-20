@@ -225,6 +225,55 @@ function MarketListingsView({ artifact }: { artifact: ResponseArtifact }) {
   );
 }
 
+function PresentationArtifactView({
+  artifact,
+}: {
+  artifact: Extract<ResponseArtifact, { type: "presentation" }>;
+}) {
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border bg-[var(--surface-muted)]">
+      <div className="flex items-center justify-between border-b px-4 py-2.5">
+        <p className="text-xs font-semibold text-[var(--foreground)]">
+          {artifact.title}
+        </p>
+        <a
+          href={artifact.downloadUrl}
+          download={artifact.fileName}
+          className="flex items-center gap-1.5 rounded bg-[var(--primary)] px-2.5 py-1 text-[10px] font-semibold text-white transition hover:opacity-90"
+        >
+          <Download className="size-3" />
+          Stáhnout PPTX
+        </a>
+      </div>
+      <div className="divide-y">
+        {artifact.slides.map((slide, i) => (
+          <div key={i} className="px-4 py-3">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--foreground-muted)]">
+              Slide {i + 1}
+            </p>
+            <p className="text-xs font-semibold text-[var(--foreground)]">
+              {slide.title}
+            </p>
+            {slide.bullets.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5">
+                {slide.bullets.map((b, j) => (
+                  <li
+                    key={j}
+                    className="flex items-start gap-1.5 text-xs text-[var(--foreground-muted)]"
+                  >
+                    <span className="mt-1 size-1 shrink-0 rounded-full bg-[var(--foreground-muted)]" />
+                    {b}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ArtifactView({
   artifact,
   intent,
@@ -232,6 +281,10 @@ function ArtifactView({
   artifact: ResponseArtifact;
   intent: ChatResponse["intent"];
 }) {
+  if (artifact.type === "presentation") {
+    return <PresentationArtifactView artifact={artifact} />;
+  }
+
   if (intent === "market_watch" && artifact.type === "table") {
     return <MarketListingsView artifact={artifact} />;
   }

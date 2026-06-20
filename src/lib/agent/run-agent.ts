@@ -11,6 +11,7 @@ import { classifyConfirmationIntent } from "@/lib/agent/confirmation-intent";
 import {
   CreateCalendarEventInputSchema,
   CreateEmailDraftInputSchema,
+  CreatePresentationInputSchema,
   CreateWeeklyReportInputSchema,
   FindCalendarEventsInputSchema,
   FindCalendarSlotsInputSchema,
@@ -63,6 +64,7 @@ import { queryClientMetrics } from "@/lib/tools/client-metrics";
 import { searchMarketListings } from "@/lib/tools/market-search";
 import { upsertMarketWatchRule } from "@/lib/tools/market-watch-schedule";
 import { buildMorningReport } from "@/lib/tools/morning-report";
+import { createPresentation } from "@/lib/tools/presentation";
 import { findIncompleteProperties } from "@/lib/tools/property-quality";
 import { queryPropertyMetrics } from "@/lib/tools/property-metrics";
 import {
@@ -713,6 +715,7 @@ async function executeToolAction(
     googleToken?: StoredGoogleToken | null;
     userEmail?: string;
     userId?: string;
+    threadId?: string;
   },
 ): Promise<ToolExecution> {
   if (action.toolName === "query_lead_metrics") {
@@ -1171,6 +1174,35 @@ async function executeToolAction(
           title: "Prezentace pro vedení — 3 slidy",
           columns: ["slide", "title", "content"],
           rows: report.slides,
+        },
+      },
+    };
+  }
+
+  if (action.toolName === "create_presentation") {
+    const input = CreatePresentationInputSchema.parse(action.toolInput);
+    const isMock = getDataSourceEnvironment().DATA_SOURCE === "local";
+    const presentation = await createPresentation(action.toolInput, {
+      userId: options?.userId,
+      threadId: options?.threadId,
+    });
+
+    return {
+      toolName: action.toolName,
+      toolInput: input,
+      result: presentation,
+      isMock,
+      isEmpty: false,
+      response: {
+        intent: "report",
+        requiresConfirmation: false,
+        source: isMock ? LOCAL_REPORT_SOURCE : getBusinessDataSource(),
+        artifact: {
+          type: "presentation",
+          title: input.title,
+          fileName: presentation.fileName,
+          downloadUrl: presentation.downloadUrl,
+          slides: presentation.slides,
         },
       },
     };
@@ -2426,6 +2458,7 @@ export async function runAgent(
         googleToken: options.googleToken,
         userEmail: options.userEmail,
         userId: options.userId,
+        threadId: options.threadId,
       });
 
       return createTextResponse(
@@ -2623,6 +2656,7 @@ export async function runAgent(
         googleToken: options?.googleToken,
         userEmail: options?.userEmail,
         userId: options?.userId,
+        threadId: options?.threadId,
       });
       executions.push(execution);
       contents.push(

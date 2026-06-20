@@ -70,7 +70,7 @@ export function classifyIntent(
     return "web_search";
   }
 
-  if (any(m, ["report", "shrnutí výsledků", "výsledky minulého", "výsledky tohoto", "prezentace", "slide", "pro vedení", "pro management", "týdenní report", "ranní report"])) {
+  if (any(m, ["report", "shrnutí výsledků", "výsledky minulého", "výsledky tohoto", "prezentace", "slide", "slidy", "pptx", "powerpoint", "pro vedení", "pro management", "týdenní report", "ranní report"])) {
     return "report";
   }
 
@@ -98,7 +98,7 @@ export function intentToRouteHint(intent: AgentIntent): string | null {
     case "scheduled_task":
       return "ZÁMĚR: Nastavit opakovanou/naplánovanou úlohu. Použij create_scheduled_task. Server zachytí a zobrazí potvrzení.";
     case "report":
-      return "ZÁMĚR: Vytvořit report nebo prezentaci. Použij create_weekly_report nebo send_morning_report.";
+      return "ZÁMĚR: Vytvořit report nebo prezentaci. Pro PPTX ke stažení ('prezentace', 'slidy', 'PowerPoint', '3 slidy pro vedení'): create_presentation. Pro textový přehled týdne: create_weekly_report. Pro ranní report emailem: send_morning_report.";
     case "confirmation_reply":
     case "general_chat":
       return null;

@@ -52,6 +52,20 @@ export const CreateWeeklyReportInputSchema = z.object({
   audience: z.enum(["management", "team"]).default("management"),
 });
 
+export const CreatePresentationInputSchema = z.object({
+  title: z.string().min(1).max(200),
+  topic: z.string().min(1).max(500),
+  audience: z.enum(["vedení", "klient", "interní tým"]).optional(),
+  slideCount: z.number().int().min(2).max(6).optional(),
+  sourceData: z
+    .object({
+      summary: z.string().max(2000).optional(),
+      metrics: z.record(z.string(), z.unknown()).optional(),
+    })
+    .optional(),
+  format: z.literal("pptx").optional(),
+});
+
 export const WatchMarketInputSchema = z.object({
   mode: z.enum(["preview", "schedule"]).default("preview"),
   locationQuery: z.string().min(1).optional(),
@@ -205,6 +219,7 @@ export const AgentToolNameSchema = z.enum([
   "list_recent_emails",
   "read_email",
   "search_emails",
+  "create_presentation",
 ]);
 
 export const AgentPlanSchema = z.object({

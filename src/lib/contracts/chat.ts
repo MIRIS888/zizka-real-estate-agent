@@ -62,6 +62,18 @@ export const ChatResponseSchema = z.object({
         yKeys: z.array(z.string().min(1)).min(1).optional(),
         data: z.array(z.record(z.string(), z.string().or(z.number()))),
       }),
+      z.object({
+        type: z.literal("presentation"),
+        title: z.string().min(1),
+        fileName: z.string().min(1),
+        downloadUrl: z.string().min(1),
+        slides: z.array(
+          z.object({
+            title: z.string(),
+            bullets: z.array(z.string()),
+          }),
+        ),
+      }),
     ])
     .optional(),
   artifacts: z
@@ -80,6 +92,18 @@ export const ChatResponseSchema = z.object({
           yKey: z.string().min(1).optional(),
           yKeys: z.array(z.string().min(1)).min(1).optional(),
           data: z.array(z.record(z.string(), z.string().or(z.number()))),
+        }),
+        z.object({
+          type: z.literal("presentation"),
+          title: z.string().min(1),
+          fileName: z.string().min(1),
+          downloadUrl: z.string().min(1),
+          slides: z.array(
+            z.object({
+              title: z.string(),
+              bullets: z.array(z.string()),
+            }),
+          ),
         }),
       ]),
     )

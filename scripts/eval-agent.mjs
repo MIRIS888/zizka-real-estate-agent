@@ -35,7 +35,7 @@ function classifyIntent(userMessage, hasPendingConfirmation) {
   if (anyMatch(m, ["chybí data", "neúplné nemovitosti", "rekonstrukce", "stavební úpravy"])) return "property_search";
   if (anyMatch(m, ["každé ráno", "každý den", "denní přehled", "pravidelný přehled", "opakovaně mi posílej"])) return "scheduled_task";
   if (anyMatch(m, ["sreality", "bezrealitky", "realitní server", "aktuální nabídky", "nové nabídky", "realitní portál"])) return "web_search";
-  if (anyMatch(m, ["report", "shrnutí výsledků", "výsledky minulého", "prezentace", "slide", "pro vedení"])) return "report";
+  if (anyMatch(m, ["report", "shrnutí výsledků", "výsledky minulého", "prezentace", "slide", "slidy", "pptx", "powerpoint", "pro vedení"])) return "report";
   return "general_chat";
 }
 
@@ -356,6 +356,46 @@ const scenarios = [
     fn: () => isValidRealEmail("test@example.com") === false,
   },
 ];
+
+// ─── PRES scenarios ──────────────────────────────────────────────────────────
+const PRES_SCENARIOS = [
+  {
+    id: "PRES-39",
+    desc: "'vytvoř prezentaci pro vedení' → report intent",
+    fn: () => classifyIntent("vytvoř prezentaci pro vedení", false) === "report",
+  },
+  {
+    id: "PRES-40",
+    desc: "'připrav slidy' → report intent",
+    fn: () => classifyIntent("připrav slidy", false) === "report",
+  },
+  {
+    id: "PRES-41",
+    desc: "'udělej PPTX' → report intent",
+    fn: () => classifyIntent("udělej PPTX", false) === "report",
+  },
+  {
+    id: "PRES-42",
+    desc: "'shrnutí výsledků minulého týdne do prezentace' → report intent",
+    fn: () => classifyIntent("shrnutí výsledků minulého týdne do prezentace se třemi slidy", false) === "report",
+  },
+  {
+    id: "PRES-43",
+    desc: "'připrav prezentaci se třemi slidy pro vedení' → report intent",
+    fn: () => classifyIntent("připrav prezentaci se třemi slidy pro vedení", false) === "report",
+  },
+  {
+    id: "PRES-44",
+    desc: "'napiš email' is NOT report intent",
+    fn: () => classifyIntent("napiš email pro zájemce", false) !== "report",
+  },
+  {
+    id: "PRES-45",
+    desc: "'report pro vedení' → report intent",
+    fn: () => classifyIntent("připrav report pro vedení", false) === "report",
+  },
+];
+scenarios.push(...PRES_SCENARIOS);
 
 // ─── Runner ───────────────────────────────────────────────────────────────────
 
