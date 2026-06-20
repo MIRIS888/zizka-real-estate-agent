@@ -349,9 +349,13 @@ function createFunctionToolCall(functionCall: FunctionCall): FunctionToolCall {
     "send_morning_report",
     "watch_market",
     "create_scheduled_task",
+    "create_scheduled_tasks_batch",
     "list_scheduled_tasks",
     "update_scheduled_task",
     "delete_scheduled_task",
+    "list_recent_emails",
+    "read_email",
+    "search_emails",
   ];
 
   if (!toolName || !allowedToolNames.includes(toolName as AgentToolName)) {
