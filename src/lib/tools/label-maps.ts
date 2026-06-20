@@ -6,6 +6,7 @@ const STATUS_LABELS_CS: Record<string, string> = {
   inactive: "Neaktivní",
   won: "Uzavřeno",
   lost: "Ztracen",
+  viewing_scheduled: "Prohlídka naplánována",
   open: "Otevřený",
   closed: "Uzavřený",
 };
