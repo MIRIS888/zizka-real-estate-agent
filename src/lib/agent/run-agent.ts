@@ -353,6 +353,7 @@ function createFunctionToolCall(functionCall: FunctionCall): FunctionToolCall {
     "create_email_draft",
     "send_email",
     "create_weekly_report",
+    "create_presentation",
     "send_morning_report",
     "watch_market",
     "create_scheduled_task",
