@@ -59,10 +59,27 @@ export async function POST(request: Request) {
       if (msgs && msgs.length > 0) {
         chatHistory = (msgs as { role: string; content: string }[])
           .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => ({
-            role: m.role as "user" | "assistant",
-            content: m.content.slice(0, 8_000),
-          }));
+          .map((m) => {
+            let text = m.content;
+            if (m.role === "assistant") {
+              // Legacy rows stored JSON.stringify(ChatResponse) as content.
+              // Extract just the message text so Gemini sees readable prose, not JSON.
+              try {
+                const raw = JSON.parse(text) as unknown;
+                if (
+                  typeof raw === "object" &&
+                  raw !== null &&
+                  "message" in raw &&
+                  typeof (raw as Record<string, unknown>).message === "string"
+                ) {
+                  text = (raw as Record<string, unknown>).message as string;
+                }
+              } catch {
+                // Already plain text — use as-is
+              }
+            }
+            return { role: m.role as "user" | "assistant", content: text.slice(0, 8_000) };
+          });
       }
     } else {
       // Create new thread immediately (first message determines title)
@@ -93,26 +110,27 @@ export async function POST(request: Request) {
     // Persist messages to DB (best-effort — never fail the response)
     if (resolvedThreadId) {
       try {
-        const userContent = message;
-        const assistantContent = JSON.stringify(response);
-
         await supabase.from("chat_messages").insert([
           {
             thread_id: resolvedThreadId,
             user_id: user.id,
             role: "user",
-            content: userContent,
+            content: message,
             metadata: {},
           },
           {
             thread_id: resolvedThreadId,
             user_id: user.id,
             role: "assistant",
-            content: assistantContent,
+            content: response.message,
             metadata: {
               intent: response.intent,
               requiresConfirmation: response.requiresConfirmation,
-              hasArtifact: !!response.artifact,
+              source: response.source ?? null,
+              artifact: response.artifact ?? null,
+              artifacts: response.artifacts ?? null,
+              emailDraft: response.emailDraft ?? null,
+              generatedOutputs: response.generatedOutputs ?? null,
             },
           },
         ]);

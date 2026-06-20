@@ -482,7 +482,7 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
       })
       .then(
         (data: {
-          messages?: { id: string; role: string; content: string }[];
+          messages?: { id: string; role: string; content: string; metadata?: Record<string, unknown> }[];
         }) => {
           if (!mounted) return;
           const mapped: UIMessage[] = (data.messages ?? []).flatMap((m): UIMessage[] => {
@@ -490,26 +490,32 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
               return [{ id: m.id, role: "user" as const, content: m.content }];
             }
             if (m.role === "assistant") {
+              // Legacy format: content was JSON.stringify(ChatResponse)
               try {
-                const parsed = ChatResponseSchema.parse(
-                  JSON.parse(m.content) as unknown,
-                );
-                return [
-                  { id: m.id, role: "assistant" as const, response: parsed },
-                ];
+                const rawParsed = JSON.parse(m.content) as unknown;
+                if (typeof rawParsed === "object" && rawParsed !== null && "message" in rawParsed) {
+                  const parsed = ChatResponseSchema.parse(rawParsed);
+                  return [{ id: m.id, role: "assistant" as const, response: parsed }];
+                }
               } catch {
-                return [
-                  {
-                    id: m.id,
-                    role: "assistant" as const,
-                    response: {
-                      message: m.content,
-                      intent: "general" as const,
-                      requiresConfirmation: false,
-                    } as ChatResponse,
-                  },
-                ];
+                // Not legacy JSON — fall through to new format
               }
+              // New format: content = message text, metadata = artifacts/source/etc.
+              const meta = (m.metadata ?? {}) as Record<string, unknown>;
+              return [{
+                id: m.id,
+                role: "assistant" as const,
+                response: {
+                  message: m.content,
+                  intent: (meta.intent as ChatResponse["intent"]) ?? "general",
+                  requiresConfirmation: Boolean(meta.requiresConfirmation),
+                  source: (meta.source as ChatResponse["source"]) ?? undefined,
+                  artifact: (meta.artifact as ChatResponse["artifact"]) ?? undefined,
+                  artifacts: (meta.artifacts as ChatResponse["artifacts"]) ?? undefined,
+                  emailDraft: (meta.emailDraft as ChatResponse["emailDraft"]) ?? undefined,
+                  generatedOutputs: (meta.generatedOutputs as ChatResponse["generatedOutputs"]) ?? undefined,
+                } as ChatResponse,
+              }];
             }
             return [];
           });
