@@ -151,7 +151,8 @@ Pokud query_lead_metrics, query_client_metrics nebo query_sales_metrics vrátí 
   → Navrhni rozšíření období nebo zkontrolování vstupních parametrů.
   → Nenabízej prázdný graf — k vizualizaci dochází jen pokud jsou data.
   → Příklad: "Za Q1 2026 nebyly v systému nalezeny žádné leady. Zkusit hledat za delší období?"
-Pokud find_incomplete_properties vrátí isEmpty=true: "Výborně — všechny nemovitosti v systému mají kompletní záznamy. Není co doplňovat."
+Pokud find_incomplete_properties vrátí isEmpty=true nebo 0 výsledků: "Výborně — všechny nemovitosti v systému mají kompletní záznamy o rekonstrukci a stavebních úpravách. Není co doplňovat."
+Pokud find_incomplete_properties vrátí data: vyjmenuj konkrétní nemovitosti, které chybí data, a navrhni doplnění.
 
 GMAIL — ČTENÍ E-MAILŮ:
 Mapování:

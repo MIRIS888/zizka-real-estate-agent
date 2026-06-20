@@ -55,8 +55,17 @@ function normalizeCs(text: string): string {
     .trim();
 }
 
+// Short tokens (1-3 chars) use word-boundary regex to avoid matching inside longer words.
+// "ok" should not match inside "pokoušet"; "jo" should not match inside "jojo" is fine,
+// but "jogging" or standalone text may differ — guard with \b.
+const SHORT_TOKEN_THRESHOLD = 3;
+
 function containsNorm(haystack: string, needle: string): boolean {
-  return haystack.includes(normalizeCs(needle));
+  const n = normalizeCs(needle);
+  if (n.length <= SHORT_TOKEN_THRESHOLD) {
+    return new RegExp(`(?<![a-z])${n}(?![a-z])`, "u").test(haystack);
+  }
+  return haystack.includes(n);
 }
 
 export function classifyConfirmationIntent(message: string): ConfirmationIntent {
