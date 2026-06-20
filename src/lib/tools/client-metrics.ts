@@ -2,6 +2,7 @@ import { QueryLeadMetricsInputSchema } from "@/lib/contracts/tools";
 import { getDataSourceEnvironment } from "@/lib/env";
 import { localClients } from "@/lib/local-data/seed";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
+import { localizeLabel } from "@/lib/tools/label-maps";
 
 type ClientMetricGroup = "month" | "source" | "status";
 
@@ -17,10 +18,8 @@ export type ClientMetric = {
 };
 
 function getGroupLabel(row: ClientRow, groupBy: ClientMetricGroup) {
-  if (groupBy === "month") {
-    return row.created_at.slice(0, 7);
-  }
-  return row[groupBy] || "unknown";
+  if (groupBy === "month") return row.created_at.slice(0, 7);
+  return localizeLabel(row[groupBy], groupBy);
 }
 
 export async function queryClientMetrics(

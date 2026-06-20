@@ -40,8 +40,11 @@ if (!url || !key) {
 
 const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-const Q1_FROM = "2026-01-01";
-const Q1_TO   = "2026-03-31";
+// Accept --year=YYYY from CLI, default to current year
+const yearArg = process.argv.find((a) => a.startsWith("--year="));
+const DIAG_YEAR = yearArg ? parseInt(yearArg.split("=")[1], 10) : new Date().getFullYear();
+const Q1_FROM = `${DIAG_YEAR}-01-01`;
+const Q1_TO   = `${DIAG_YEAR}-03-31`;
 
 const SCHEMA = {
   clients:    ["id", "organization_id", "created_at", "source", "status"],
@@ -95,7 +98,7 @@ async function run() {
 
   console.log(`Supabase URL:    ${url}`);
   console.log(`Organization ID: ${orgId ?? "⚠️  DEFAULT_ORGANIZATION_ID není nastaven"}`);
-  console.log(`Q1 rozsah:       ${Q1_FROM} – ${Q1_TO}\n`);
+  console.log(`Q1 rozsah:       ${Q1_FROM} – ${Q1_TO} (rok ${DIAG_YEAR})\n`);
 
   let allOk = true;
   const missingColumns = [];
@@ -138,7 +141,7 @@ async function run() {
           .gte("created_at", `${Q1_FROM}T00:00:00.000Z`)
           .lte("created_at", `${Q1_TO}T23:59:59.999Z`);
         const { count: q1count, error: q1err } = await q;
-        console.log(`   📊 Q1 2026 (${Q1_FROM}–${Q1_TO}): ${q1err ? `chyba: ${q1err.message.slice(0,50)}` : (q1count ?? 0)}`);
+        console.log(`   📊 Q1 ${DIAG_YEAR} (${Q1_FROM}–${Q1_TO}): ${q1err ? `chyba: ${q1err.message.slice(0,50)}` : (q1count ?? 0)}`);
       }
     }
 

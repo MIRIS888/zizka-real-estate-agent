@@ -46,8 +46,12 @@ async function gmailFetch<T>(
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Gmail API ${res.status}: ${body.slice(0, 200)}`);
+    const msg =
+      res.status === 401 ? "Gmail: platnost přihlášení vypršela, připojte Google účet znovu." :
+      res.status === 403 ? "Gmail: chybí oprávnění pro tuto operaci." :
+      res.status === 429 ? "Gmail: překročen limit požadavků, zkuste za chvíli." :
+      `Gmail: chyba ${res.status}.`;
+    throw new Error(msg);
   }
   return res.json() as Promise<T>;
 }

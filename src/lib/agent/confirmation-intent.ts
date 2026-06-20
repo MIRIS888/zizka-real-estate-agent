@@ -12,6 +12,12 @@ const CONFIRM_WORDS = [
   "proved", "proved", "zaloz", "zaloz", "vytvor", "vytvor", "yes", "confirm",
 ];
 
+// Weak filler words that do NOT override a reject signal.
+// "dobře ale neposílej" / "ok, stop" → REJECT, not confirm_with_modification.
+const WEAK_FILLERS = new Set([
+  "ok", "jo", "jj", "dobre", "dobra", "super", "skvely", "skvele",
+]);
+
 // Rejection signals
 const REJECT_WORDS = [
   "nechci", "nechce", "neposil", "nezakladej", "nezalozej",
@@ -73,7 +79,13 @@ export function classifyConfirmationIntent(message: string): ConfirmationIntent 
 
   const hasRejectWord = REJECT_WORDS.some((w) => containsNorm(norm, w));
 
-  if ((isNegativeStart || hasRejectWord) && !hasPositive) return "reject";
+  // Weak fillers ("ok", "jo", "dobré") do NOT override a reject verb.
+  // "dobře, ale neposílej" → reject, not confirm_with_modification.
+  const hasOnlyWeakPositive =
+    hasPositive &&
+    !CONFIRM_WORDS.filter((w) => !WEAK_FILLERS.has(w)).some((w) => containsNorm(norm, w));
+
+  if (isNegativeStart || (hasRejectWord && (!hasPositive || hasOnlyWeakPositive))) return "reject";
 
   if (!hasPositive) return "question_or_unclear";
 

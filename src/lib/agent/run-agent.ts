@@ -579,7 +579,8 @@ function buildConfirmedActionMessage(
     const failLines = failed.length > 0
       ? `\n\n⚠️ ${failed.length} úloha/y se nepodařilo vytvořit:\n${failed.map((r, i) => `${created.length + i + 1}. **${r.location}** — ${r.reason ?? "Chyba."}`).join("\n")}`
       : "";
-    return `Hotovo, nastavil jsem **${created.length}** naplánované${created.length < 5 ? " úlohy" : " úloh"}:\n\n${lines.join("\n")}${failLines}`;
+    const plural = created.length === 1 ? " úlohu" : created.length < 5 ? " úlohy" : " úloh";
+    return `Hotovo, nastavil jsem **${created.length}** naplánované${plural}:\n\n${lines.join("\n")}${failLines}`;
   }
 
   if (action.toolName === "create_scheduled_task") {

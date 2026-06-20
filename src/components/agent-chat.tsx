@@ -274,6 +274,10 @@ function ArtifactView({
             </tbody>
           </table>
         </div>
+      ) : artifact.data.length === 0 ? (
+        <div className="flex h-48 items-center justify-center p-4 text-sm text-[var(--foreground-muted)]">
+          Pro zvolené období nejsou žádná data.
+        </div>
       ) : (
         <div className="h-64 p-4">
           <ResponsiveContainer width="100%" height="100%">

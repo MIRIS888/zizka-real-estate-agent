@@ -2,6 +2,7 @@ import { QueryLeadMetricsInputSchema } from "@/lib/contracts/tools";
 import { getDataSourceEnvironment } from "@/lib/env";
 import { localLeads } from "@/lib/local-data/seed";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
+import { localizeLabel } from "@/lib/tools/label-maps";
 
 type LeadMetricGroup = "month" | "source" | "status";
 
@@ -17,11 +18,8 @@ export type LeadMetric = {
 };
 
 function getGroupLabel(row: LeadRow, groupBy: LeadMetricGroup) {
-  if (groupBy === "month") {
-    return row.created_at.slice(0, 7);
-  }
-
-  return row[groupBy] || "unknown";
+  if (groupBy === "month") return row.created_at.slice(0, 7);
+  return localizeLabel(row[groupBy], groupBy);
 }
 
 export async function queryLeadMetrics(
