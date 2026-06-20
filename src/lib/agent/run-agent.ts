@@ -558,32 +558,47 @@ function buildConfirmedActionMessage(
       : "Hotovo, ranní report byl odeslán e-mailem.";
   }
   if (action.toolName === "create_scheduled_tasks_batch") {
-    const result = execution.result as { results?: { ok: boolean; location: string; scheduleKind: string; reason?: string }[]; created?: number; failed?: number };
+    const result = execution.result as { results?: { ok: boolean; location: string; scheduleKind: string; reason?: string; qstash?: { attempted?: boolean; scheduled?: boolean } }[] };
     const created = result?.results?.filter((r) => r.ok) ?? [];
     const failed = result?.results?.filter((r) => !r.ok) ?? [];
     if (created.length === 0) return "Nepodařilo se vytvořit žádnou úlohu.";
     const lines = created.map((r, i) => {
-      const kind = r.scheduleKind === "one_time" ? "jednorázově" : "každý den";
-      return `${i + 1}. **${r.location}** — ${kind}`;
+      if (r.scheduleKind === "one_time") {
+        const q = r.qstash;
+        const suffix = q?.attempted && q?.scheduled
+          ? " — přesné spuštění přes QStash zajištěno"
+          : q?.attempted && !q?.scheduled
+          ? " — ⚠️ QStash selhal, odešle se při nejbližším cron běhu"
+          : " — odešle se při nejbližším cron běhu";
+        return `${i + 1}. **${r.location}** — jednorázově${suffix}`;
+      }
+      return `${i + 1}. **${r.location}** — každý den`;
     });
-    const failMsg = failed.length > 0 ? `\n\n⚠️ ${failed.length} úloha/y se nepodařilo vytvořit: ${failed.map((r) => r.location).join(", ")}.` : "";
-    return `Hotovo, nastavil jsem **${created.length}** naplánované${created.length < 5 ? " úlohy" : " úloh"}:\n\n${lines.join("\n")}${failMsg}`;
+    const failLines = failed.length > 0
+      ? `\n\n⚠️ ${failed.length} úloha/y se nepodařilo vytvořit:\n${failed.map((r, i) => `${created.length + i + 1}. **${r.location}** — ${r.reason ?? "Chyba."}`).join("\n")}`
+      : "";
+    return `Hotovo, nastavil jsem **${created.length}** naplánované${created.length < 5 ? " úlohy" : " úloh"}:\n\n${lines.join("\n")}${failLines}`;
   }
 
   if (action.toolName === "create_scheduled_task") {
-    const result = execution.result as { created?: boolean; reason?: string; localTime?: string; scheduleKind?: string; qstashScheduled?: boolean };
+    const result = execution.result as { created?: boolean; reason?: string; localTime?: string; scheduleKind?: string; qstash?: { attempted?: boolean; scheduled?: boolean } };
     if (result?.reason === "past_datetime") {
       const t = result.localTime ?? "";
-      return `Čas ${t} už dnes proběhl. Chcete to naplánovat na zítra ve stejnou dobu?`;
+      return `Čas ${t} už dnes uplynul. Chcete úlohu naplánovat na zítra v ${t}?`;
     }
     if (result?.reason === "missing_run_at") {
       return "Pro jednorázovou úlohu je potřeba zadat přesný čas. Zkuste to prosím znovu.";
     }
     if (execution.isEmpty) return "Naplánovanou úlohu se nepodařilo vytvořit.";
     if (result?.scheduleKind === "one_time") {
-      return result?.qstashScheduled
-        ? "Hotovo, jednorázový report je naplánovaný — přijde přesně v zadaný čas."
-        : "Hotovo, jednorázový report byl zařazen do fronty. Spustí se v nejbližším denním běhu (každý den v 08:00 Praha).";
+      const q = result?.qstash;
+      if (q?.attempted && q?.scheduled) {
+        return "Hotovo, jednorázový report je naplánovaný — přesné spuštění přes QStash bylo zajištěno.";
+      }
+      if (q?.attempted && !q?.scheduled) {
+        return "Hotovo, jednorázový report je uložený, ale přesné spuštění přes QStash se nepodařilo naplánovat. Odešle se při nejbližším cron běhu (každý den v 08:00 Praha).";
+      }
+      return "Hotovo, jednorázový report byl zařazen do fronty. Spustí se v nejbližším denním běhu (každý den v 08:00 Praha).";
     }
     return "Hotovo, naplánovaná úloha byla vytvořena.";
   }
@@ -620,6 +635,27 @@ function createTextResponse(
     generatedOutputs: latestExecution?.response.generatedOutputs,
     message,
   };
+}
+
+type QStashOutcome =
+  | { attempted: false; scheduled: false }
+  | { attempted: true; scheduled: true; messageId: string }
+  | { attempted: true; scheduled: false; error: string };
+
+async function tryScheduleQStash(runAt: Date): Promise<QStashOutcome> {
+  if (!isQStashConfigured()) {
+    return { attempted: false, scheduled: false };
+  }
+  const cronSecret = getCronSecret();
+  const qstashToken = process.env.QSTASH_TOKEN ?? "";
+  if (!cronSecret || !qstashToken) {
+    return { attempted: true, scheduled: false, error: "QStash credentials nejsou nastaveny." };
+  }
+  const result = await scheduleQStashTrigger(runAt, getRunDueTasksUrl(), cronSecret, qstashToken);
+  if (result?.messageId) {
+    return { attempted: true, scheduled: true, messageId: result.messageId };
+  }
+  return { attempted: true, scheduled: false, error: "QStash request selhal." };
 }
 
 async function executeToolAction(
@@ -1256,20 +1292,9 @@ async function executeToolAction(
 
     // For one-time tasks: schedule an exact HTTP trigger via Upstash QStash.
     // The Vercel daily cron (06:00 UTC) remains as a safety fallback.
-    let qstashScheduled = false;
-    if (isOneTime && isQStashConfigured()) {
-      const cronSecret = getCronSecret();
-      const qstashToken = process.env.QSTASH_TOKEN ?? "";
-      if (cronSecret && qstashToken) {
-        const triggerResult = await scheduleQStashTrigger(
-          new Date(task.next_run_at),
-          getRunDueTasksUrl(),
-          cronSecret,
-          qstashToken,
-        );
-        qstashScheduled = triggerResult !== null;
-      }
-    }
+    const qstash: QStashOutcome = isOneTime
+      ? await tryScheduleQStash(new Date(task.next_run_at))
+      : { attempted: false, scheduled: false };
 
     const tz = input.timezone;
     const rows = isOneTime
@@ -1288,7 +1313,7 @@ async function executeToolAction(
     return {
       toolName: action.toolName,
       toolInput: input,
-      result: { task, created: true, scheduleKind: input.schedule_kind, qstashScheduled, isMock: false, isEmpty: false },
+      result: { task, created: true, scheduleKind: input.schedule_kind, qstash, isMock: false, isEmpty: false },
       isMock: false,
       isEmpty: false,
       response: {
@@ -2069,7 +2094,8 @@ async function executeToolAction(
     const raw = typeof action.toolInput === "object" && action.toolInput !== null ? action.toolInput : {};
     const input = CreateScheduledTasksBatchInputSchema.parse(raw);
 
-    const results: { ok: boolean; location: string; scheduleKind: string; reason?: string }[] = [];
+    type BatchTaskResult = { ok: boolean; location: string; scheduleKind: string; reason?: string; qstash?: QStashOutcome };
+    const results: BatchTaskResult[] = [];
 
     for (const taskInput of input.tasks) {
       try {
@@ -2080,7 +2106,12 @@ async function executeToolAction(
             continue;
           }
           if (new Date(taskInput.run_at) <= new Date()) {
-            results.push({ ok: false, location: taskInput.location, scheduleKind: "one_time", reason: "Zadaný čas je v minulosti." });
+            const localTime = new Intl.DateTimeFormat("cs-CZ", {
+              timeZone: taskInput.timezone,
+              hour: "2-digit",
+              minute: "2-digit",
+            }).format(new Date(taskInput.run_at));
+            results.push({ ok: false, location: taskInput.location, scheduleKind: "one_time", reason: `Čas ${localTime} už dnes uplynul.` });
             continue;
           }
         }
@@ -2088,15 +2119,10 @@ async function executeToolAction(
           ...taskInput,
           recipient_email: options?.userEmail,
         });
-        // Schedule one_time tasks via QStash
-        if (isOneTime && isQStashConfigured()) {
-          const cronSecret = getCronSecret();
-          const qstashToken = process.env.QSTASH_TOKEN ?? "";
-          if (cronSecret && qstashToken) {
-            await scheduleQStashTrigger(new Date(task.next_run_at), getRunDueTasksUrl(), cronSecret, qstashToken).catch(() => null);
-          }
-        }
-        results.push({ ok: true, location: taskInput.location, scheduleKind: taskInput.schedule_kind });
+        const qstash: QStashOutcome = isOneTime
+          ? await tryScheduleQStash(new Date(task.next_run_at))
+          : { attempted: false, scheduled: false };
+        results.push({ ok: true, location: taskInput.location, scheduleKind: taskInput.schedule_kind, qstash });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Chyba při vytváření úlohy.";
         results.push({ ok: false, location: taskInput.location, scheduleKind: taskInput.schedule_kind, reason: msg });

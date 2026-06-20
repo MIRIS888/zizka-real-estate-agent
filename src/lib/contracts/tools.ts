@@ -175,7 +175,7 @@ export const CreateScheduledTasksBatchInputSchema = z.object({
         timezone: z.string().min(1).default("Europe/Prague"),
       }),
     )
-    .min(2)
+    .min(1)
     .max(10),
 });
 
