@@ -495,13 +495,18 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
                 const rawParsed = JSON.parse(m.content) as unknown;
                 if (typeof rawParsed === "object" && rawParsed !== null && "message" in rawParsed) {
                   const parsed = ChatResponseSchema.parse(rawParsed);
-                  return [{ id: m.id, role: "assistant" as const, response: parsed }];
+                  // Migrate singular artifact → artifacts so UI only needs artifacts array
+                  const migratedArtifacts = parsed.artifacts ?? (parsed.artifact ? [parsed.artifact] : undefined);
+                  return [{ id: m.id, role: "assistant" as const, response: { ...parsed, artifact: undefined, artifacts: migratedArtifacts } }];
                 }
               } catch {
                 // Not legacy JSON — fall through to new format
               }
               // New format: content = message text, metadata = artifacts/source/etc.
               const meta = (m.metadata ?? {}) as Record<string, unknown>;
+              // Migrate legacy singular artifact → artifacts array
+              const migratedArtifacts = (meta.artifacts as ChatResponse["artifacts"])
+                ?? (meta.artifact ? [meta.artifact as NonNullable<ChatResponse["artifact"]>] : undefined);
               return [{
                 id: m.id,
                 role: "assistant" as const,
@@ -510,8 +515,7 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
                   intent: (meta.intent as ChatResponse["intent"]) ?? "general",
                   requiresConfirmation: Boolean(meta.requiresConfirmation),
                   source: (meta.source as ChatResponse["source"]) ?? undefined,
-                  artifact: (meta.artifact as ChatResponse["artifact"]) ?? undefined,
-                  artifacts: (meta.artifacts as ChatResponse["artifacts"]) ?? undefined,
+                  artifacts: migratedArtifacts,
                   emailDraft: (meta.emailDraft as ChatResponse["emailDraft"]) ?? undefined,
                   generatedOutputs: (meta.generatedOutputs as ChatResponse["generatedOutputs"]) ?? undefined,
                 } as ChatResponse,
@@ -906,9 +910,7 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
                     {msg.response.emailDraft && (
                       <EmailDraftView draft={msg.response.emailDraft} />
                     )}
-                    {(msg.response.artifacts ??
-                      (msg.response.artifact ? [msg.response.artifact] : [])
-                    ).map((artifact) => (
+                    {(msg.response.artifacts ?? []).map((artifact) => (
                       <ArtifactView
                         key={`${artifact.type}-${artifact.title}`}
                         artifact={artifact}

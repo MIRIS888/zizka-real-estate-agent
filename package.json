@@ -12,6 +12,7 @@
     "seed:supabase": "node scripts/seed-supabase-demo.mjs",
     "validate:demo": "node scripts/validate-demo.mjs",
     "diagnose:cron": "node scripts/diagnose-cron.mjs",
+    "diagnose:data": "node scripts/diagnose-data.mjs",
     "test:qstash": "node scripts/test-qstash.mjs",
     "test:qstash:dry": "node scripts/test-qstash.mjs --dry",
     "test:qstash:cleanup": "node scripts/test-qstash.mjs --cleanup"

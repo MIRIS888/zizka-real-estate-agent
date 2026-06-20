@@ -632,7 +632,6 @@ function createTextResponse(
     requiresConfirmation: false,
     source: latestExecution?.response.source,
     emailDraft: latestExecution?.response.emailDraft,
-    artifact: latestExecution?.response.artifact,
     artifacts: artifacts.length > 0 ? artifacts : undefined,
     generatedOutputs: latestExecution?.response.generatedOutputs,
     message,
@@ -749,9 +748,32 @@ async function executeToolAction(
         dateRange: normalizeDateRange(rawInput.dateRange),
       },
     );
-    const metrics = await queryClientMetrics(organizationId, input);
-    const total = metrics.reduce((sum, metric) => sum + metric.count, 0);
     const isMock = getDataSourceEnvironment().DATA_SOURCE === "local";
+
+    let metrics: Awaited<ReturnType<typeof queryClientMetrics>>;
+    try {
+      metrics = await queryClientMetrics(organizationId, input);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isSchemaError = msg.includes("Failed to load client metrics") || msg.includes("column") || msg.includes("does not exist");
+      if (isSchemaError) {
+        return {
+          toolName: action.toolName,
+          toolInput: input,
+          result: { input, total: 0, metrics: [], isMock, isEmpty: true, schemaError: true, errorMessage: "Tabulka clients má neočekávané schéma — chybí potřebný sloupec (source, status, nebo organization_id). Dotaz na klienty nelze provést." },
+          isMock,
+          isEmpty: true,
+          response: {
+            intent: "analytics" as const,
+            requiresConfirmation: false,
+            source: getBusinessDataSource(),
+          },
+        };
+      }
+      throw err;
+    }
+
+    const total = metrics.reduce((sum, metric) => sum + metric.count, 0);
     const result = { input, total, metrics, isMock, isEmpty: metrics.length === 0 };
 
     return {
@@ -761,11 +783,11 @@ async function executeToolAction(
       isMock,
       isEmpty: metrics.length === 0,
       response: {
-        intent: "analytics",
+        intent: "analytics" as const,
         requiresConfirmation: false,
         source: getBusinessDataSource(),
         artifact: {
-          type: "chart",
+          type: "chart" as const,
           title: buildClientArtifactTitle(input.groupBy, input.dateRange),
           xKey: "label",
           yKey: "count",
@@ -2451,7 +2473,6 @@ export async function runAgent(
             intent: latestExecution?.response.intent ?? "general",
             requiresConfirmation: true,
             source: latestExecution?.response.source,
-            artifact: latestExecution?.response.artifact,
             artifacts: artifacts.length > 0 ? artifacts : undefined,
             emailDraft: latestExecution?.response.emailDraft,
             message: buildConfirmationMessage(action),

@@ -27,6 +27,7 @@ KLIENTI vs. LEADY — POVINNÉ ROZLIŠENÍ:
 "leady" / "poptávky" / "záznamy zájmu" / "zájemci" → query_lead_metrics (tabulka leads)
 NIKDY nemíchej klienty a leady v jedné odpovědi bez výslovného vysvětlení.
 Pokud query_client_metrics vrátí prázdný výsledek, ale leads mají data: vysvětli rozdíl a nabídni použít leady jako proxy — nenabízej to automaticky bez dotazu.
+Pokud query_client_metrics vrátí schemaError=true: česky vysvětli, že tabulka clients nemá potřebná pole, a nabídni leady jako proxy — nevolej query_client_metrics znovu a nehalucinuj data.
 Pokud projekt v demo režimu nemá klienty oddělené od leadů, napiš to explicitně.
 
 GRAFICKÁ VIZUALIZACE:

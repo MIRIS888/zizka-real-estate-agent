@@ -7,8 +7,8 @@ type ClientMetricGroup = "month" | "source" | "status";
 
 type ClientRow = {
   created_at: string;
-  source: string;
-  status: string;
+  source?: string;
+  status?: string;
 };
 
 export type ClientMetric = {
@@ -61,9 +61,14 @@ export async function queryClientMetrics(
 
   const supabase = createSupabaseServiceClient();
 
+  // Select only the column needed for grouping (plus created_at for month grouping).
+  // Avoids querying columns that may not exist in all deployments (e.g. status).
+  const groupCol = input.groupBy !== "month" ? input.groupBy : null;
+  const selectCols = groupCol ? `created_at, ${groupCol}` : "created_at";
+
   const { data, error } = await supabase
     .from("clients")
-    .select("created_at, source, status")
+    .select(selectCols)
     .eq("organization_id", organizationId)
     .gte("created_at", `${input.dateRange.from}T00:00:00.000Z`)
     .lte("created_at", `${input.dateRange.to}T23:59:59.999Z`);
@@ -72,7 +77,7 @@ export async function queryClientMetrics(
     throw new Error(`Failed to load client metrics: ${error.message}`);
   }
 
-  const rows = (data ?? []) as ClientRow[];
+  const rows = (data ?? []) as unknown as ClientRow[];
   const groupedCounts = new Map<string, number>();
 
   for (const row of rows) {
