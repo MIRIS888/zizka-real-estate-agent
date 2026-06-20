@@ -96,6 +96,21 @@ async function run() {
   const now = new Date().toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
   console.log(`\n=== ANALYTICS DATA DIAGNOSTIKA — ${now} ===\n`);
 
+  // ── Security env check ───────────────────────────────────────────────────────
+  const hmacOk = !!process.env.HMAC_SECRET;
+  const cronFallback = !hmacOk && !!process.env.CRON_SECRET && process.env.NODE_ENV !== "production";
+  if (hmacOk) {
+    console.log("✅ HMAC_SECRET: nastaven");
+  } else if (cronFallback) {
+    console.log("⚠️  HMAC_SECRET: chybí — používá se CRON_SECRET jako dev fallback");
+    console.log("    → Pro produkci nastavte HMAC_SECRET jako samostatný secret.");
+  } else {
+    console.log("❌ HMAC_SECRET: chybí — confirmation tokeny nejdou generovat");
+    console.log("    → Všechny write akce (send_email, calendar, scheduled tasks) jsou zablokovány.");
+    console.log("    → Nastavte HMAC_SECRET v .env.local (dev) nebo Vercel env (produkce).");
+  }
+  console.log();
+
   console.log(`Supabase URL:    ${url}`);
   console.log(`Organization ID: ${orgId ?? "⚠️  DEFAULT_ORGANIZATION_ID není nastaven"}`);
   console.log(`Q1 rozsah:       ${Q1_FROM} – ${Q1_TO} (rok ${DIAG_YEAR})\n`);

@@ -2475,12 +2475,30 @@ export async function runAgent(
         if (!isAuthorized) {
           const latestExecution = getLatestExecution(executions);
           const artifacts = getAllArtifacts(executions);
-          const token = options?.userId
-            ? generateConfirmationToken(options.userId, pendingTool, options.threadId)
-            : null;
+
+          if (!options?.userId) {
+            return {
+              intent: latestExecution?.response.intent ?? "general",
+              requiresConfirmation: false,
+              message: "Akci nelze provést — uživatel není přihlášen.",
+            };
+          }
+
+          const token = generateConfirmationToken(options.userId, pendingTool, options.threadId);
+
+          if (!token) {
+            if (process.env.NODE_ENV !== "production") {
+              console.log(`[agent] BLOCKED consequential ${action.toolName} — HMAC_SECRET not configured`);
+            }
+            return {
+              intent: latestExecution?.response.intent ?? "general",
+              requiresConfirmation: false,
+              message: "Bezpečnostní potvrzení není nakonfigurované (chybí HMAC_SECRET). Akci nelze provést.",
+            };
+          }
 
           if (process.env.NODE_ENV !== "production") {
-            console.log(`[agent] intercepted consequential: ${action.toolName} → generated token: ${token ? "yes" : "no (no userId)"}`);
+            console.log(`[agent] intercepted consequential: ${action.toolName} → token generated`);
           }
 
           const emailDraftForConfirmation =
@@ -2495,7 +2513,8 @@ export async function runAgent(
             artifacts: artifacts.length > 0 ? artifacts : undefined,
             emailDraft: emailDraftForConfirmation,
             message: buildConfirmationMessage(action),
-            ...(token ? { confirmationToken: token, pendingTool } : {}),
+            confirmationToken: token,
+            pendingTool,
           };
         }
 

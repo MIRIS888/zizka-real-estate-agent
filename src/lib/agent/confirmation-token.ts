@@ -17,7 +17,13 @@ type TokenPayload = {
 };
 
 function getHmacSecret(): string | null {
-  return process.env.HMAC_SECRET ?? process.env.CRON_SECRET ?? null;
+  if (process.env.HMAC_SECRET) return process.env.HMAC_SECRET;
+  // CRON_SECRET accepted only outside production — it serves a different purpose
+  // (authenticating Vercel cron jobs) and must not be the primary confirmation secret.
+  if (process.env.NODE_ENV !== "production" && process.env.CRON_SECRET) {
+    return process.env.CRON_SECRET;
+  }
+  return null;
 }
 
 // Canonical JSON serialization that sorts object keys at every level
