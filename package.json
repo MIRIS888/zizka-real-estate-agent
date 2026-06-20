@@ -15,7 +15,8 @@
     "diagnose:data": "node scripts/diagnose-data.mjs",
     "test:qstash": "node scripts/test-qstash.mjs",
     "test:qstash:dry": "node scripts/test-qstash.mjs --dry",
-    "test:qstash:cleanup": "node scripts/test-qstash.mjs --cleanup"
+    "test:qstash:cleanup": "node scripts/test-qstash.mjs --cleanup",
+    "eval:agent": "node scripts/eval-agent.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.8.0",

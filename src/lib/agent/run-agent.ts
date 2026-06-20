@@ -1,4 +1,7 @@
 import { type ChatResponse, type ChatHistoryItem } from "@/lib/contracts/chat";
+import { classifyIntent, intentToRouteHint } from "@/lib/agent/runtime/intent";
+import { resolveCapabilities, buildCapabilityNote } from "@/lib/agent/runtime/capability";
+import { verifyFinalMessage } from "@/lib/agent/runtime/verifier";
 import {
   generateConfirmationToken,
   verifyConfirmationToken,
@@ -2357,6 +2360,12 @@ export async function runAgent(
     // question_or_unclear: fall through to Gemini with full conversation history
   }
 
+  const capabilities = resolveCapabilities(options?.googleToken);
+  const intent = classifyIntent(
+    userMessage,
+    !!(options?.confirmationToken && options?.pendingTool),
+  );
+
   const { client, model } = createGeminiClient();
   const FALLBACK_MODEL = "gemini-2.5-flash";
   const contents: Content[] = [
@@ -2398,6 +2407,8 @@ export async function runAgent(
     "Pro relativní datumy počítej rozsahy z aktuálního data výše.",
     _schedulerNote,
     pendingActionContextNote,
+    intentToRouteHint(intent),
+    buildCapabilityNote(capabilities, intent),
   ].filter(Boolean).join("\n");
 
   async function callGemini(activeModel: string, activeContents: Content[]) {
@@ -2436,7 +2447,7 @@ export async function runAgent(
     }
 
     if (functionCalls.length === 0) {
-      return createTextResponse(response.text ?? "Hotovo.", executions);
+      return createTextResponse(verifyFinalMessage(response.text ?? "Hotovo."), executions);
     }
 
     // Preserve the full model response content including thoughtSignature parts.
