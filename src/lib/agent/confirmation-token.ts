@@ -87,8 +87,9 @@ export function verifyConfirmationToken(
     if (data.exp < Date.now()) return false;
     if (data.userId !== userId) return false;
     if (data.toolName !== pending.toolName) return false;
-    // If token was issued for a specific thread, it must match
-    if (data.threadId && threadId && data.threadId !== threadId) return false;
+    // Token threadId must match exactly — prevents cross-thread confirmation reuse.
+    // If token has threadId but request threadId doesn't match (or is missing), reject.
+    if (data.threadId && data.threadId !== threadId) return false;
 
     const expectedHash = hashPayload(secret, pending.payload);
     return data.payloadHash === expectedHash;

@@ -2289,6 +2289,34 @@ export async function runAgent(
     };
   }
 
+  // Backend hard stop: standalone confirmation-like message with no pending action.
+  // Prevents Gemini from interpreting "ano pošli" as a new task in a fresh chat
+  // where no confirmation flow has been started. Must run before any Gemini call.
+  if (!options?.pendingTool) {
+    const normMsg = userMessage
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "");
+    const STANDALONE_CONFIRM_PHRASES = new Set([
+      "ano", "jo", "jj", "ok", "yes", "confirm",
+      "potvrzuji", "potvrdit", "souhlas", "souhlasim",
+      "posli", "odesli", "odeslat",
+      "posli to", "odesli to", "posli email", "odesli email",
+      "ano posli", "ano odesli", "ano, posli", "ano, odesli",
+      "ok posli", "ok odesli", "ok, posli", "ok, odesli",
+      "proved", "zaloz", "vytvor",
+    ]);
+    if (STANDALONE_CONFIRM_PHRASES.has(normMsg)) {
+      return {
+        intent: "general",
+        requiresConfirmation: false,
+        message:
+          "V tomto chatu není žádná akce k potvrzení. Napište prosím, co chcete udělat.",
+      };
+    }
+  }
+
   // Confirmation response handling — classify user intent to avoid mechanical keyword matching.
   // pure_confirm → fast-path execute (skip Gemini re-generation to avoid payload drift).
   // reject → cancel immediately without calling Gemini.

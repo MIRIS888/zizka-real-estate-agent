@@ -75,6 +75,26 @@ function resolveCapabilities(googleToken) {
   };
 }
 
+// ─── Backend confirmation gate (inlined from run-agent.ts) ───────────────────
+
+function normMsg(s) {
+  return s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+const STANDALONE_CONFIRM_PHRASES = new Set([
+  "ano", "jo", "jj", "ok", "yes", "confirm",
+  "potvrzuji", "potvrdit", "souhlas", "souhlasim",
+  "posli", "odesli", "odeslat",
+  "posli to", "odesli to", "posli email", "odesli email",
+  "ano posli", "ano odesli", "ano, posli", "ano, odesli",
+  "ok posli", "ok odesli", "ok, posli", "ok, odesli",
+  "proved", "zaloz", "vytvor",
+]);
+
+function isStandaloneConfirm(message) {
+  return STANDALONE_CONFIRM_PHRASES.has(normMsg(message));
+}
+
 // ─── Eval scenarios ───────────────────────────────────────────────────────────
 
 const scenarios = [
@@ -224,6 +244,47 @@ const scenarios = [
       const msg = "{ toto není validní json ale začíná závorkou";
       return validateFinalMessage(msg).ok === true;
     },
+  },
+  // ── Backend confirmation gate scenarios ──────────────────────────────────────
+  {
+    id: "GATE-23",
+    desc: "'ano pošli' bez pendingTool → blocked (standalone confirm gate)",
+    fn: () => isStandaloneConfirm("ano pošli"),
+  },
+  {
+    id: "GATE-24",
+    desc: "'ano' bez pendingTool → blocked",
+    fn: () => isStandaloneConfirm("ano"),
+  },
+  {
+    id: "GATE-25",
+    desc: "'potvrzuji' bez pendingTool → blocked",
+    fn: () => isStandaloneConfirm("potvrzuji"),
+  },
+  {
+    id: "GATE-26",
+    desc: "'ok pošli' bez pendingTool → blocked",
+    fn: () => isStandaloneConfirm("ok pošli"),
+  },
+  {
+    id: "GATE-27",
+    desc: "'odeslat' bez pendingTool → blocked",
+    fn: () => isStandaloneConfirm("odeslat"),
+  },
+  {
+    id: "GATE-28",
+    desc: "'ok, napiš email na sara@example.com...' → NOT blocked (real instruction)",
+    fn: () => !isStandaloneConfirm("ok, napiš email na sara@example.com o interních nemovitostech"),
+  },
+  {
+    id: "GATE-29",
+    desc: "'napiš email zájemci o bytě' → NOT blocked (real task)",
+    fn: () => !isStandaloneConfirm("napiš email zájemci o bytě na Žižkově"),
+  },
+  {
+    id: "GATE-30",
+    desc: "'pošli ranní report' → NOT blocked (has context word 'ranní report')",
+    fn: () => !isStandaloneConfirm("pošli ranní report na můj email"),
   },
 ];
 
