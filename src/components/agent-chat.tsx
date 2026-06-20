@@ -499,7 +499,6 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
                 const rawParsed = JSON.parse(m.content) as unknown;
                 if (typeof rawParsed === "object" && rawParsed !== null && "message" in rawParsed) {
                   const parsed = ChatResponseSchema.parse(rawParsed);
-                  // Migrate singular artifact → artifacts so UI only needs artifacts array
                   const migratedArtifacts = parsed.artifacts ?? (parsed.artifact ? [parsed.artifact] : undefined);
                   return [{ id: m.id, role: "assistant" as const, response: { ...parsed, artifact: undefined, artifacts: migratedArtifacts } }];
                 }
@@ -508,7 +507,6 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
               }
               // New format: content = message text, metadata = artifacts/source/etc.
               const meta = (m.metadata ?? {}) as Record<string, unknown>;
-              // Migrate legacy singular artifact → artifacts array
               const migratedArtifacts = (meta.artifacts as ChatResponse["artifacts"])
                 ?? (meta.artifact ? [meta.artifact as NonNullable<ChatResponse["artifact"]>] : undefined);
               return [{
@@ -751,6 +749,7 @@ export function AgentChat({ initialThreadId, userEmail }: { initialThreadId?: st
                   className="flex min-w-0 flex-1 items-start gap-2.5"
                   onClick={() => {
                     setError(null);
+                    setPendingConfirmation(null);
                     router.push(`/chat/${thread.id}`);
                   }}
                 >

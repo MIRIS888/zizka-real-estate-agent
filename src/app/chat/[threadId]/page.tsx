@@ -8,5 +8,5 @@ export default async function ThreadPage({
 }) {
   const { threadId } = await params;
   const user = await getAuthUser();
-  return <AgentChat initialThreadId={threadId} userEmail={user?.email} />;
+  return <AgentChat key={threadId} initialThreadId={threadId} userEmail={user?.email} />;
 }
