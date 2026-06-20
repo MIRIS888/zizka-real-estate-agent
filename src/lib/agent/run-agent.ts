@@ -56,6 +56,7 @@ import {
   watchMarket,
 } from "@/lib/tools/demo-operations";
 import { queryLeadMetrics } from "@/lib/tools/lead-metrics";
+import { queryClientMetrics } from "@/lib/tools/client-metrics";
 import { searchMarketListings } from "@/lib/tools/market-search";
 import { upsertMarketWatchRule } from "@/lib/tools/market-watch-schedule";
 import { buildMorningReport } from "@/lib/tools/morning-report";
@@ -335,6 +336,7 @@ function createFunctionToolCall(functionCall: FunctionCall): FunctionToolCall {
   const toolName = functionCall.name;
   const allowedToolNames: AgentToolName[] = [
     "query_lead_metrics",
+    "query_client_metrics",
     "query_property_metrics",
     "query_sales_metrics",
     "find_incomplete_properties",
@@ -658,6 +660,36 @@ async function tryScheduleQStash(runAt: Date): Promise<QStashOutcome> {
   return { attempted: true, scheduled: false, error: "QStash request selhal." };
 }
 
+function formatAnalyticsPeriod(from: string, to: string): string {
+  const y1 = from.slice(0, 4);
+  const m1 = parseInt(from.slice(5, 7), 10);
+  const m2 = parseInt(to.slice(5, 7), 10);
+  const y2 = to.slice(0, 4);
+  if (y1 === y2) {
+    if (m1 === 1 && m2 === 3) return `1. kvartál ${y1}`;
+    if (m1 === 4 && m2 === 6) return `2. kvartál ${y1}`;
+    if (m1 === 7 && m2 === 9) return `3. kvartál ${y1}`;
+    if (m1 === 10 && m2 === 12) return `4. kvartál ${y1}`;
+    if (m1 === 1 && m2 === 12) return String(y1);
+  }
+  const months = ["led", "úno", "bře", "dub", "kvě", "čer", "čec", "srp", "zář", "říj", "lis", "pro"];
+  return `${months[m1 - 1]}–${months[m2 - 1]} ${y2}`;
+}
+
+function buildLeadArtifactTitle(groupBy: string, dateRange: { from: string; to: string }): string {
+  const period = formatAnalyticsPeriod(dateRange.from, dateRange.to);
+  if (groupBy === "month") return `Vývoj leadů po měsících — ${period}`;
+  if (groupBy === "source") return `Zdroje leadů — ${period}`;
+  return `Leady podle statusu — ${period}`;
+}
+
+function buildClientArtifactTitle(groupBy: string, dateRange: { from: string; to: string }): string {
+  const period = formatAnalyticsPeriod(dateRange.from, dateRange.to);
+  if (groupBy === "month") return `Noví klienti po měsících — ${period}`;
+  if (groupBy === "source") return `Zdroje nových klientů — ${period}`;
+  return `Klienti podle statusu — ${period}`;
+}
+
 async function executeToolAction(
   userMessage: string,
   action: FunctionToolCall,
@@ -691,16 +723,54 @@ async function executeToolAction(
       isMock,
       isEmpty: metrics.length === 0,
       response: {
-      intent: "analytics",
-      requiresConfirmation: false,
-      source: getBusinessDataSource(),
-      artifact: {
-        type: "chart",
-        title: "Leady podle členění",
-        xKey: "label",
-        yKey: "count",
-        data: metrics,
+        intent: "analytics",
+        requiresConfirmation: false,
+        source: getBusinessDataSource(),
+        artifact: {
+          type: "chart",
+          title: buildLeadArtifactTitle(input.groupBy, input.dateRange),
+          xKey: "label",
+          yKey: "count",
+          data: metrics,
+        },
       },
+    };
+  }
+
+  if (action.toolName === "query_client_metrics") {
+    const organizationId = getDefaultOrganizationId();
+    const rawInput =
+      typeof action.toolInput === "object" && action.toolInput !== null
+        ? (action.toolInput as { dateRange?: unknown; groupBy?: unknown })
+        : {};
+    const input = QueryLeadMetricsInputSchema.parse(
+      {
+        groupBy: normalizeLeadGroupBy(rawInput.groupBy),
+        dateRange: normalizeDateRange(rawInput.dateRange),
+      },
+    );
+    const metrics = await queryClientMetrics(organizationId, input);
+    const total = metrics.reduce((sum, metric) => sum + metric.count, 0);
+    const isMock = getDataSourceEnvironment().DATA_SOURCE === "local";
+    const result = { input, total, metrics, isMock, isEmpty: metrics.length === 0 };
+
+    return {
+      toolName: action.toolName,
+      toolInput: input,
+      result,
+      isMock,
+      isEmpty: metrics.length === 0,
+      response: {
+        intent: "analytics",
+        requiresConfirmation: false,
+        source: getBusinessDataSource(),
+        artifact: {
+          type: "chart",
+          title: buildClientArtifactTitle(input.groupBy, input.dateRange),
+          xKey: "label",
+          yKey: "count",
+          data: metrics,
+        },
       },
     };
   }
@@ -742,7 +812,7 @@ async function executeToolAction(
       source: getBusinessDataSource(),
       artifact: {
         type: "chart",
-        title: "Vyvoj leadu a prodanych nemovitosti",
+        title: "Vývoj leadů a prodaných nemovitostí",
         xKey: "month",
         yKeys: ["leads", "soldProperties"],
         data: metrics,

@@ -182,6 +182,7 @@ export const CreateScheduledTasksBatchInputSchema = z.object({
 export const AgentToolNameSchema = z.enum([
   "none",
   "query_lead_metrics",
+  "query_client_metrics",
   "query_property_metrics",
   "query_sales_metrics",
   "find_incomplete_properties",
