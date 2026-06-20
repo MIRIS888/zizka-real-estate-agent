@@ -61,6 +61,7 @@ export const CreatePresentationInputSchema = z.object({
     .object({
       summary: z.string().max(2000).optional(),
       metrics: z.record(z.string(), z.unknown()).optional(),
+      period: z.string().max(100).optional(),
     })
     .optional(),
   format: z.literal("pptx").optional(),

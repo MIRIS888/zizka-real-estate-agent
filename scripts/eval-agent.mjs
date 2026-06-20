@@ -357,6 +357,37 @@ const scenarios = [
   },
 ];
 
+// ─── Presentation guardrail helpers (inlined) ────────────────────────────────
+const FORBIDDEN_PHRASES_EVAL = [
+  "data budou doplněna",
+  "viz příloha",
+  "todo",
+  "tbd",
+  "doplnit později",
+  "obsah bude doplněn",
+  "bude doplněn",
+  "data budou",
+  "will be filled",
+  "placeholder",
+];
+
+function evalContainsForbidden(text) {
+  const lower = text.toLowerCase();
+  return FORBIDDEN_PHRASES_EVAL.some((p) => lower.includes(p));
+}
+
+function evalValidatePresentation(slides) {
+  for (const slide of slides) {
+    if (evalContainsForbidden(slide.title)) return { ok: false, reason: `forbidden in title: "${slide.title}"` };
+    for (const bullet of slide.bullets) {
+      if (evalContainsForbidden(bullet)) return { ok: false, reason: `forbidden bullet: "${bullet}"` };
+    }
+  }
+  const allText = slides.flatMap((s) => [s.title, ...s.bullets]).join(" ");
+  if (!/\d+/.test(allText)) return { ok: false, reason: "no numeric metrics" };
+  return { ok: true };
+}
+
 // ─── PRES scenarios ──────────────────────────────────────────────────────────
 const PRES_SCENARIOS = [
   {
@@ -393,6 +424,90 @@ const PRES_SCENARIOS = [
     id: "PRES-45",
     desc: "'report pro vedení' → report intent",
     fn: () => classifyIntent("připrav report pro vedení", false) === "report",
+  },
+  // ── Guardrail: placeholder detection ────────────────────────────────────────
+  {
+    id: "PRES-46",
+    desc: "slides s placeholder → guardrail blocks",
+    fn: () => {
+      const slides = [
+        { title: "Report", bullets: ["Nové leady: 5", "Data budou doplněna z interních systémů."] },
+        { title: "Výsledky", bullets: ["Info"] },
+      ];
+      return evalValidatePresentation(slides).ok === false;
+    },
+  },
+  {
+    id: "PRES-47",
+    desc: "slides bez čísel → guardrail blocks",
+    fn: () => {
+      const slides = [
+        { title: "Report", bullets: ["Leady: mnoho", "Klienti: přibylo"] },
+        { title: "Doporučení", bullets: ["Kontaktovat leady", "Aktualizovat nabídky"] },
+      ];
+      return evalValidatePresentation(slides).ok === false;
+    },
+  },
+  {
+    id: "PRES-48",
+    desc: "slides s reálnými daty → guardrail passes",
+    fn: () => {
+      const slides = [
+        { title: "Výsledky minulého týdne", bullets: ["Nové leady: 5", "Noví klienti: 2", "Aktivní nemovitosti: 8"] },
+        { title: "Výsledky a pipeline", bullets: ["Za minulý týden bylo 5 nových poptávek ze Sreality"] },
+        { title: "Doporučení", bullets: ["[Vysoká] Kontaktovat 5 nových leadů", "[Střední] Aktualizovat 8 nabídek"] },
+      ];
+      return evalValidatePresentation(slides).ok === true;
+    },
+  },
+  {
+    id: "PRES-49",
+    desc: "slides s TBD v titulku → guardrail blocks",
+    fn: () => {
+      const slides = [{ title: "TBD", bullets: ["Leady: 5"] }];
+      return evalValidatePresentation(slides).ok === false;
+    },
+  },
+  {
+    id: "PRES-50",
+    desc: "slideCount=3 → exactly 3 slides check",
+    fn: () => {
+      const slides = [
+        { title: "Výsledky Q1", bullets: ["Nové leady: 12", "Noví klienti: 4", "Aktivní nemovitosti: 6"] },
+        { title: "Výsledky a pipeline", bullets: ["Nejvíce leadů ze Sreality"] },
+        { title: "Doporučení", bullets: ["[Vysoká] Kontaktovat 12 leadů"] },
+      ];
+      return slides.length === 3 && evalValidatePresentation(slides).ok === true;
+    },
+  },
+  {
+    id: "PRES-51",
+    desc: "presentation artifact type = 'presentation'",
+    fn: () => {
+      const artifact = {
+        type: "presentation",
+        title: "Výsledky minulého týdne",
+        fileName: "report.pptx",
+        downloadUrl: "https://storage.example.com/file.pptx",
+        slides: [
+          { title: "Výsledky", bullets: ["Leady: 5"] },
+        ],
+      };
+      return (
+        artifact.type === "presentation" &&
+        typeof artifact.downloadUrl === "string" &&
+        artifact.downloadUrl.length > 0 &&
+        artifact.slides.length > 0
+      );
+    },
+  },
+  {
+    id: "PRES-52",
+    desc: "'obsah bude doplněn' → guardrail blocks",
+    fn: () => {
+      const slides = [{ title: "Slide 4", bullets: ["Obsah bude doplněn.", "Leady: 3"] }];
+      return evalValidatePresentation(slides).ok === false;
+    },
   },
 ];
 scenarios.push(...PRES_SCENARIOS);

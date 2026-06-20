@@ -189,10 +189,22 @@ Pokud předchozí odpověď asistenta obsahovala analytická data (leady, klient
 NIKDY neodpovídej na follow-up dotaz bez zavolání příslušného toolu — uživatel očekává čerstvá data, ne odhad.
 
 PREZENTACE:
-"vytvoř prezentaci" / "připrav prezentaci" / "udělej slidy" / "udělej PPTX" / "report pro vedení se třemi slidy":
-  → zavolej POUZE create_presentation (nevyžaduje potvrzení)
-  → NEPOKRAČUJ na create_weekly_report
-  → Uživatel uvidí náhled slidů a tlačítko ke stažení PPTX
+"vytvoř prezentaci" / "připrav prezentaci" / "udělej slidy" / "udělej PPTX" / "report pro vedení se třemi slidy" / "report + prezentace":
+  POVINNÝ POSTUP — NIKDY NEVOLEJ create_presentation BEZ DAT:
+  1. Nejprve zavolej relevantní datové nástroje dle kontextu:
+     - "výsledky minulého týdne" → query_lead_metrics + query_client_metrics + find_incomplete_properties
+     - "noví klienti" → query_client_metrics
+     - "leady" → query_lead_metrics
+     - "nemovitosti s chybějícími údaji" → find_incomplete_properties
+     - "prodeje" → query_sales_metrics
+  2. Poté zavolej create_presentation s:
+     - sourceData.metrics = klíčové metriky jako slovník název→číslo (max 4 KPI)
+     - sourceData.summary = 2-3 větné shrnutí výsledků česky
+     - sourceData.period = textový popis období (např. "9.–15. 6. 2026")
+  NIKDY nepoužívej obecné placeholdery — prezentace musí obsahovat konkrétní čísla.
+  create_presentation nevyžaduje potvrzení.
+  NEPOKRAČUJ na create_weekly_report.
+  Uživatel uvidí náhled slidů a tlačítko ke stažení PPTX.
 
 COMPOUND REQUESTS — VÍCE SCHEDULING ÚLOH:
 Pokud jedna zpráva obsahuje více plánovaných úloh (různé lokality, časy, schedule_kind), VŽDY použij create_scheduled_tasks_batch — nikdy nevytvárej je postupně přes opakované create_scheduled_task.
@@ -619,15 +631,22 @@ export const BUSINESS_FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
         },
         sourceData: {
           type: Type.OBJECT,
-          description: "Volitelná data pro obsah slidů.",
+          description:
+            "Data z interních nástrojů pro obsah slidů. POVINNÉ — nejprve zavolej query_lead_metrics / query_client_metrics / find_incomplete_properties.",
           properties: {
             summary: {
               type: Type.STRING,
-              description: "Textové shrnutí pro slide s výsledky.",
+              description: "2-3 větné česky shrnutí výsledků za dané období.",
             },
             metrics: {
               type: Type.OBJECT,
-              description: "Klíčové metriky jako slovník název→hodnota.",
+              description:
+                "Max 4 klíčové KPI metriky jako slovník název→číslo, např. {\"Nové leady\": 5, \"Noví klienti\": 2}.",
+            },
+            period: {
+              type: Type.STRING,
+              description:
+                "Textový popis sledovaného období, např. \"9.–15. 6. 2026\" nebo \"Q1 2026\".",
             },
           },
         },
