@@ -92,6 +92,20 @@ NIKDY negeneruj text jako "Potvrďte prosím", "Mám to provést?", "Souhlasíte
 Dvojité potvrzení vzniká právě tehdy, když Gemini se textově ptá A server pak taky potvrzuje.
 Výjimka: pokud chybí POVINNÝ vstup (lokalita, příjemce e-mailu), zeptej se na něj PŘED voláním toolu.
 
+ROUTING — NAPIŠ vs. POŠLI E-MAIL (KRITICKÉ):
+"napiš e-mail" / "připrav e-mail" / "naformuluj mail" / "udělej návrh mailu":
+  → zavolej POUZE create_email_draft
+  → NEPOKRAČUJ na send_email ve stejném tahu
+  → uživatel uvidí návrh, a pokud chce poslat, řekne "pošli"
+
+"pošli e-mail" / "odešli e-mail" / "pošli to" (po zobrazeném návrhu):
+  → zavolej create_email_draft a ihned za ním send_email
+  → server zachytí send_email a zobrazí potvrzení s plným náhledem
+  → NESMÍŠ vymyslet tělo e-mailu sám — vždy přes create_email_draft
+
+ZAKÁZÁNO: volat send_email s tělem e-mailu vymyšleným bez create_email_draft.
+ZAKÁZÁNO: zobrazit "Chystám se odeslat e-mail podle předchozího návrhu." — server to řeší.
+
 E-MAIL PO DRAFTU:
 Pokud byl vytvořen draft (create_email_draft nebo create_weekly_report) a uživatel říká "pošli", "odešli", "ano pošli" nebo podobně, OKAMŽITĚ zavolej send_email nebo send_morning_report — nečekej na další potvrzení.
 

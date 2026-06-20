@@ -396,9 +396,17 @@ function isConsequentialAction(action: FunctionToolCall): boolean {
 }
 
 
+function extractSendEmailFields(toolInput: unknown): { to: string; subject: string; body: string } | null {
+  const raw = typeof toolInput === "object" && toolInput !== null ? (toolInput as Record<string, unknown>) : {};
+  if (typeof raw.to !== "string" || typeof raw.subject !== "string" || typeof raw.body !== "string") return null;
+  return { to: raw.to, subject: raw.subject, body: raw.body };
+}
+
 function buildConfirmationMessage(action: FunctionToolCall) {
   if (action.toolName === "send_email") {
-    return "Chystám se odeslat e-mail podle předchozího návrhu. Potvrďte prosím odpovědí ’ano pošli’.";
+    const email = extractSendEmailFields(action.toolInput);
+    if (!email) return "Připravil jsem e-mail k odeslání. Potvrďte prosím odpovědí 'ano pošli'.";
+    return `Připravil jsem e-mail k odeslání:\n\n**Komu:** ${email.to}\n**Předmět:** ${email.subject}\n\nText e-mailu:\n${email.body}\n\nMám tento e-mail odeslat? Potvrďte prosím 'ano pošli'.`;
   }
 
   if (action.toolName === "send_morning_report") {
@@ -552,7 +560,12 @@ function buildConfirmedActionMessage(
       : `Hotovo, událost **${title}** byla přidána do Google Kalendáře.`;
   }
   if (action.toolName === "send_email") {
-    return execution.isEmpty ? "E-mail se nepodařilo odeslat." : "Hotovo, e-mail byl odeslán.";
+    if (execution.isEmpty) return "E-mail se nepodařilo odeslat.";
+    const emailRaw = action.toolInput as Record<string, unknown>;
+    const to = typeof emailRaw.to === "string" ? emailRaw.to : "";
+    const subject = typeof emailRaw.subject === "string" ? emailRaw.subject : "";
+    const details = to && subject ? `\n\n**Komu:** ${to}\n**Předmět:** ${subject}` : "";
+    return `Hotovo, e-mail byl odeslán.${details}`;
   }
   if (action.toolName === "send_morning_report") {
     return execution.isEmpty
@@ -2470,12 +2483,17 @@ export async function runAgent(
             console.log(`[agent] intercepted consequential: ${action.toolName} → generated token: ${token ? "yes" : "no (no userId)"}`);
           }
 
+          const emailDraftForConfirmation =
+            action.toolName === "send_email"
+              ? (extractSendEmailFields(action.toolInput) ?? latestExecution?.response.emailDraft)
+              : latestExecution?.response.emailDraft;
+
           return {
             intent: latestExecution?.response.intent ?? "general",
             requiresConfirmation: true,
             source: latestExecution?.response.source,
             artifacts: artifacts.length > 0 ? artifacts : undefined,
-            emailDraft: latestExecution?.response.emailDraft,
+            emailDraft: emailDraftForConfirmation,
             message: buildConfirmationMessage(action),
             ...(token ? { confirmationToken: token, pendingTool } : {}),
           };
